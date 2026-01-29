@@ -1,0 +1,19 @@
+1
+00:00:01,000 --> 00:00:04,000
+Cześć, jak się dzisiaj masz?
+
+2
+00:00:05,000 --> 00:00:08,000
+Dobrze, dziękuję.
+
+3
+00:00:10,000 --> 00:00:14,000
+Co będziemy robić?
+
+4
+00:00:15,000 --> 00:00:18,000
+Obejrzyjmy razem film.
+
+5
+00:00:20,000 --> 00:00:24,000
+To brzmi jak świetny pomysł!

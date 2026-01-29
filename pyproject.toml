@@ -1,0 +1,36 @@
+[project]
+name = "submerge"
+version = "1.0.0"
+description = "CLI for generating synchronized bilingual subtitles"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "pysubs2>=1.6",
+    "rich>=13.0",
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+    "filelock>=3.0",
+    "python-multipart>=0.0.6",
+    "pydantic-settings>=2.0",
+]
+
+[project.scripts]
+submerge = "submerge.cli:main"
+
+[project.optional-dependencies]
+sync = ["ffsubsync>=0.4.31"]
+dev = ["pytest>=7.0", "ruff>=0.1", "httpx>=0.24", "ffsubsync>=0.4.31"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
