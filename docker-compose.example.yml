@@ -22,8 +22,8 @@ services:
       # - "stacked":    both at bottom, one above the other
       SUBTOOLS_LAYOUT: "top-bottom"
     volumes:
-      # IMPORTANT: Path must match Bazarr's media path
-      - /path/to/media:/data
+      # Must match Bazarr's volume exactly
+      - /path/to/data:/data
     ports:
       - 8282:8282
     restart: unless-stopped

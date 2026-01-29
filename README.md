@@ -83,13 +83,32 @@ submerge merge fr_synced.srt pl_synced.srt -o bilingual.ass
 
 SubMerge can run as a service that automatically generates bilingual subtitles when Bazarr downloads new ones.
 
-### 1. Deploy
+### 1. Add SubMerge to your existing stack
 
-```bash
-cp docker-compose.example.yml docker-compose.yml
-# Edit SUBTOOLS_PAIRS and volume path
-docker compose up -d
+Add the SubMerge service to your existing `docker-compose.yml` (where Bazarr, Sonarr, etc. already are):
+
+```yaml
+services:
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    # ... your existing bazarr config ...
+
+  submerge:
+    image: ghcr.io/b4stoss/submerge:latest
+    container_name: submerge
+    environment:
+      SUBTOOLS_PAIRS: "fr-pl,en-pl"  # Your language pairs (bottom-top)
+      # Optional styling:
+      # SUBTOOLS_COLOR_BOTTOM: "#FFFFFF"
+      # SUBTOOLS_COLOR_TOP: "#FFFF00"
+      # SUBTOOLS_FONTSIZE: "18"
+      # SUBTOOLS_LAYOUT: "top-bottom"
+    volumes:
+      - /path/to/data:/data  # Same as Bazarr
+    restart: unless-stopped
 ```
+
+> **Important:** SubMerge must see files at the same paths as Bazarr. If Bazarr has `-v /volume1/data:/data`, use the same for SubMerge.
 
 **Environment variables:**
 
@@ -101,11 +120,21 @@ docker compose up -d
 | `SUBTOOLS_FONTSIZE` | No | `18` | Font size (8-72) |
 | `SUBTOOLS_LAYOUT` | No | `top-bottom` | `top-bottom` or `stacked` |
 
-### 2. Configure Bazarr
+### 2. Setup the hook script
+
+Create `/path/to/bazarr/config/bazarr-hook.sh`:
 
 ```bash
-# Copy hook script
-cp scripts/bazarr-hook.sh /path/to/bazarr/config/
+#!/bin/sh
+SUBMERGE_URL="${SUBMERGE_URL:-http://submerge:8282/hook}"
+curl -sf -X POST "$SUBMERGE_URL" \
+  --data-urlencode "video=$1" \
+  --data-urlencode "subtitle=$2" \
+  --data-urlencode "lang=$3"
+```
+
+Then make it executable:
+```bash
 chmod +x /path/to/bazarr/config/bazarr-hook.sh
 ```
 
@@ -117,16 +146,19 @@ In Bazarr: **Settings > Subtitles > Post-Processing**, enable and set:
 
 > Quotes around variables are required for paths with spaces.
 
-### 3. Network
+### How it works
 
-**Same stack (recommended):** If you add SubMerge to your existing Bazarr/Sonarr stack, they share a network automatically. Use `http://submerge:8282` in the hook script.
+When Bazarr downloads a subtitle, it triggers SubMerge via the hook script. SubMerge then:
 
-**Separate stacks:** Create a shared network with `docker network create media`, then add to both stacks:
-```yaml
-networks:
-  media:
-    external: true
-```
+1. Checks if all languages from `SUBTOOLS_PAIRS` are available for that video
+2. If not → does nothing, waits for the missing subtitles
+3. If yes → generates the bilingual `.ass` file(s) automatically
+
+The original subtitle files (`.srt`) are **not modified** — SubMerge only creates additional `.ass` files. You can always choose between the original single-language subtitles or the merged bilingual ones in your media player.
+
+Plex/Jellyfin will detect the new subtitle files automatically.
+
+**Note:** SubMerge processes all videos that Bazarr downloads subtitles for. There's currently no way to limit it to specific folders or videos.
 
 ## Troubleshooting
 
