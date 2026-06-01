@@ -77,7 +77,7 @@ class SubtoolsSettings(BaseSettings):
         populate_by_name=True,  # Allow both field name and alias
     )
 
-    # Paires à générer - env var: SUBTOOLS_PAIRS
+    # Language pairs - env var: SUBTOOLS_PAIRS
     # Using validation_alias to map the env var (prefix is ignored with alias)
     pairs_raw: str = Field(default="", validation_alias="SUBTOOLS_PAIRS")
 
@@ -91,7 +91,7 @@ class SubtoolsSettings(BaseSettings):
     ui_user: str = "admin"
     rate_limit_rpm: int = 30  # 0 = disabled
 
-    # Apparence
+    # Appearance
     color_bottom: str = "#FFFFFF"
     color_top: str = "#FFFF00"
     fontsize: int = 18

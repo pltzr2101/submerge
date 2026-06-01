@@ -133,8 +133,8 @@ def _runtime_settings_to_response() -> dict[str, Any]:
         "pairs": [f"{b}-{t}" for b, t in settings.pairs],
         "media_root": settings.media_root,
         "poll_interval": settings.poll_interval,
-        "color_bottom": settings.color_bottom,
-        "color_top": settings.color_top,
+        "bottom_color": settings.bottom_color,
+        "top_color": settings.top_color,
         "fontsize": settings.fontsize,
         "layout": settings.layout,
     }
@@ -201,6 +201,9 @@ def create_app() -> FastAPI:
             now = time.monotonic()
             bucket = _rate_limits.setdefault(client, [])
             bucket[:] = [t for t in bucket if now - t < 60]
+            if not bucket:
+                _rate_limits.pop(client, None)
+                return await call_next(request)
 
             if len(bucket) >= rate_limit_rpm:
                 return Response(
@@ -289,7 +292,7 @@ def validate_path(path_str: str, param_name: str, check_media_root: bool = False
         if check_media_root:
             settings = get_settings()
             media_root = Path(settings.media_root).resolve()
-            if not str(resolved_path).startswith(str(media_root) + "/") and str(resolved_path) != str(media_root):  # noqa: E501
+            if not resolved_path.is_relative_to(media_root):
                 raise HTTPException(
                     status_code=400,
                     detail={
@@ -865,15 +868,15 @@ async def api_settings(request: Request):
             except (ValueError, TypeError):
                 pass
 
-        if "color_bottom" in body:
-            color = str(body["color_bottom"]).strip()
+        if "bottom_color" in body:
+            color = str(body["bottom_color"]).strip()
             if color:
-                _runtime_settings["color_bottom"] = color
+                _runtime_settings["bottom_color"] = color
 
-        if "color_top" in body:
-            color = str(body["color_top"]).strip()
+        if "top_color" in body:
+            color = str(body["top_color"]).strip()
             if color:
-                _runtime_settings["color_top"] = color
+                _runtime_settings["top_color"] = color
 
         if "fontsize" in body:
             try:

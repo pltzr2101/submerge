@@ -7,10 +7,10 @@ the queue periodically and attempts to complete pending merges.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import threading
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,24 +19,11 @@ from .config import SubtoolsSettings, get_settings
 from .hook import (
     check_all_languages_present,
     get_present_and_missing,
-    process_bilingual_merge,
     should_skip_existing,
 )
+from .models import QueueEntry
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class QueueEntry:
-    """A pending merge entry in the queue."""
-
-    video_path: str
-    langs_present: str  # JSON list of present lang codes
-    langs_missing: str  # JSON list of missing lang codes
-    first_seen: str  # ISO datetime
-    last_checked: str  # ISO datetime
-    attempt_count: int
-    status: str  # "pending", "done", "failed"
 
 
 def _get_db_path(settings: SubtoolsSettings | None = None) -> Path:
@@ -110,8 +97,6 @@ def enqueue(video_path: str | Path, settings: SubtoolsSettings | None = None) ->
     Returns:
         True if newly inserted, False if updated
     """
-    import json
-
     settings = settings or get_settings()
     video_path = str(Path(video_path).resolve())
     video = Path(video_path)
@@ -231,8 +216,6 @@ def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, 
     if conn is None:
         return []
     try:
-        import json
-
         rows = conn.execute(
             """SELECT id, video_path, langs_present, langs_missing,
                       first_seen, last_checked, attempt_count, status, error_msg
@@ -257,7 +240,10 @@ def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, 
         conn.close()
 
 
-def process_queue(settings: SubtoolsSettings | None = None) -> dict[str, int]:
+def process_queue(
+    settings: SubtoolsSettings | None = None,
+    merge_fn: Any = None,
+) -> dict[str, int]:
     """Process all pending queue entries.
 
     Called by the background worker. Attempts to merge for each
@@ -265,10 +251,15 @@ def process_queue(settings: SubtoolsSettings | None = None) -> dict[str, int]:
 
     Args:
         settings: Configuration
+        merge_fn: Optional merge callback (video_path, sub_paths, settings) -> list[Path]
+                  Defaults to process_bilingual_merge from hook if not provided.
 
     Returns:
         Dict with counts: {"checked": N, "merged": N, "failed": N, "still_pending": N}
     """
+    if merge_fn is None:
+        from .hook import process_bilingual_merge as merge_fn
+
     settings = settings or get_settings()
     timeout_hours = getattr(settings, "retry_timeout_h", 48)
     pending = get_pending_entries(settings)
@@ -322,7 +313,7 @@ def process_queue(settings: SubtoolsSettings | None = None) -> dict[str, int]:
                 merged += 1
                 continue
 
-            process_bilingual_merge(video_path, sub_paths, settings)
+            merge_fn(video_path, sub_paths, settings)
             dequeue(video_path, "done", settings=settings)
             merged += 1
             logger.info(f"Queue merge complete: {video_path.name}")
@@ -353,7 +344,6 @@ def start_queue_worker(settings: SubtoolsSettings | None = None) -> None:
     global _worker_thread, _worker_stop
 
     settings = settings or get_settings()
-    init_db(settings)
     poll_interval = settings.poll_interval
 
     if _worker_thread is not None and _worker_thread.is_alive():

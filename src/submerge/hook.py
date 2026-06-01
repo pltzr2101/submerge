@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
 from pathlib import Path
 
 from filelock import FileLock, Timeout
@@ -12,37 +11,21 @@ from filelock import FileLock, Timeout
 from .config import SubtoolsSettings, get_settings
 from .langmap import get_all_aliases
 from .merge import MergeConfig, merge_bilingual
+from .models import HookResult, InvalidLanguageError, ProcessingError
 
 logger = logging.getLogger(__name__)
 
-# Constantes
-LOCK_TIMEOUT = 5  # Secondes
+# Constants
+LOCK_TIMEOUT = 5  # seconds
 
 # Track active polling jobs: video_path -> threading.Event (set to cancel)
 _polling_jobs: dict[str, threading.Event] = {}
 
 
-class HookError(Exception):
-    """Base error for hook."""
-
-
-class InvalidLanguageError(HookError):
-    """Unsupported language."""
-
-
-class ProcessingError(HookError):
-    """Error during processing."""
-
-
-@dataclass
-class HookResult:
-    """Hook result."""
-
-    status: str  # "merged", "waiting", "skipped", "already_processing", "polling"
-    files: list[str] | None = None
-    present: list[str] | None = None
-    missing: list[str] | None = None
-    reason: str | None = None
+# ---------------------------------------------------------------------------
+# Pure functions (no dependency on queue.py) — must be defined before the
+# queue import below because queue.py imports some of them.
+# ---------------------------------------------------------------------------
 
 
 def validate_lang(lang: str, settings: SubtoolsSettings | None = None) -> str:
@@ -191,110 +174,6 @@ def get_present_and_missing(
     return present, missing
 
 
-def _cancel_polling(video_path: Path) -> None:
-    """Cancel any active polling for a video."""
-    key = str(video_path.resolve())
-    event = _polling_jobs.pop(key, None)
-    if event is not None:
-        event.set()
-        logger.info(f"Polling cancelled for {video_path.name}")
-
-
-def _polling_worker(
-    video_path: Path,
-    settings: SubtoolsSettings,
-    cancel_event: threading.Event,
-) -> None:
-    """Background worker that polls for missing languages and triggers merge.
-
-    Args:
-        video_path: Path to video file
-        settings: Configuration
-        cancel_event: Set to stop polling
-    """
-    poll_interval = settings.poll_interval
-    max_attempts = 30  # Max 30 retries (~30 min with 60s interval)
-
-    logger.info(
-        f"Polling started for {video_path.name} "
-        f"(interval={poll_interval}s, max={max_attempts} attempts)"
-    )
-
-    for attempt in range(1, max_attempts + 1):
-        if cancel_event.wait(timeout=poll_interval):
-            logger.info(f"Polling cancelled for {video_path.name} after {attempt} attempts")
-            return
-
-        try:
-            sub_paths = check_all_languages_present(video_path, settings)
-            if sub_paths is not None:
-                logger.info(
-                    f"All languages present for {video_path.name} (attempt {attempt})"
-                )
-
-                if should_skip_existing(video_path, sub_paths, settings):
-                    logger.info(f"Skipping {video_path.name}: outputs already up-to-date")
-                    return
-
-                created_files = process_bilingual_merge(video_path, sub_paths, settings)
-                logger.info(
-                    f"Polling merge complete for {video_path.name}: "
-                    f"{[f.name for f in created_files]}"
-                )
-                # Mark queue entry as done
-                from .queue import dequeue as queue_dequeue
-                queue_dequeue(video_path, "done", settings=settings)
-                return
-
-            present, missing = get_present_and_missing(video_path, settings)
-            logger.debug(
-                f"Polling {video_path.name} (attempt {attempt}/{max_attempts}): "
-                f"present={present}, missing={missing}"
-            )
-        except Exception as e:
-            logger.error(f"Polling error for {video_path.name} (attempt {attempt}): {e}")
-
-    logger.warning(f"Polling exhausted for {video_path.name} after {max_attempts} attempts")
-
-    # Cleanup
-    key = str(video_path.resolve())
-    _polling_jobs.pop(key, None)
-
-
-def start_polling(
-    video_path: Path,
-    settings: SubtoolsSettings | None = None,
-) -> bool:
-    """Start a background polling job for a video.
-
-    If a polling job already exists for this video, it's cancelled first.
-
-    Args:
-        video_path: Path to video file
-        settings: Configuration
-
-    Returns:
-        True if polling was started
-    """
-    settings = settings or get_settings()
-
-    # Cancel any existing polling for this file
-    _cancel_polling(video_path)
-
-    key = str(video_path.resolve())
-    cancel_event = threading.Event()
-    _polling_jobs[key] = cancel_event
-
-    thread = threading.Thread(
-        target=_polling_worker,
-        args=(video_path, settings, cancel_event),
-        daemon=True,
-        name=f"submerge-poll-{video_path.name}",
-    )
-    thread.start()
-    return True
-
-
 def get_output_path(video_path: Path, lang_bottom: str, lang_top: str) -> Path:
     """Generate output path for a language pair.
 
@@ -349,6 +228,121 @@ def should_skip_existing(
     return True
 
 
+# ---------------------------------------------------------------------------
+# Import from queue — safe now because all names queue.py needs from this
+# module are already defined above.
+# ---------------------------------------------------------------------------
+
+from .queue import dequeue, enqueue  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Functions that depend on queue (defined after the import above)
+# ---------------------------------------------------------------------------
+
+
+def _cancel_polling(video_path: Path) -> None:
+    """Cancel any active polling for a video."""
+    key = str(video_path.resolve())
+    event = _polling_jobs.pop(key, None)
+    if event is not None:
+        event.set()
+        logger.info(f"Polling cancelled for {video_path.name}")
+
+
+def _polling_worker(
+    video_path: Path,
+    settings: SubtoolsSettings,
+    cancel_event: threading.Event,
+) -> None:
+    """Background worker that polls for missing languages and triggers merge.
+
+    Args:
+        video_path: Path to video file
+        settings: Configuration
+        cancel_event: Set to stop polling
+    """
+    poll_interval = settings.poll_interval
+    max_attempts = 30  # Max 30 retries (~30 min with 60s interval)
+
+    logger.info(
+        f"Polling started for {video_path.name} "
+        f"(interval={poll_interval}s, max={max_attempts} attempts)"
+    )
+
+    key = str(video_path.resolve())
+    try:
+        for attempt in range(1, max_attempts + 1):
+            if cancel_event.wait(timeout=poll_interval):
+                logger.info(f"Polling cancelled for {video_path.name} after {attempt} attempts")
+                return
+
+            try:
+                sub_paths = check_all_languages_present(video_path, settings)
+                if sub_paths is not None:
+                    logger.info(
+                        f"All languages present for {video_path.name} (attempt {attempt})"
+                    )
+
+                    if should_skip_existing(video_path, sub_paths, settings):
+                        logger.info(f"Skipping {video_path.name}: outputs already up-to-date")
+                        return
+
+                    created_files = process_bilingual_merge(video_path, sub_paths, settings)
+                    logger.info(
+                        f"Polling merge complete for {video_path.name}: "
+                        f"{[f.name for f in created_files]}"
+                    )
+                    # Mark queue entry as done
+                    dequeue(video_path, "done", settings=settings)
+                    return
+
+                present, missing = get_present_and_missing(video_path, settings)
+                logger.debug(
+                    f"Polling {video_path.name} (attempt {attempt}/{max_attempts}): "
+                    f"present={present}, missing={missing}"
+                )
+            except Exception as e:
+                logger.error(f"Polling error for {video_path.name} (attempt {attempt}): {e}")
+
+        logger.warning(f"Polling exhausted for {video_path.name} after {max_attempts} attempts")
+    finally:
+        _polling_jobs.pop(key, None)
+
+
+def start_polling(
+    video_path: Path,
+    settings: SubtoolsSettings | None = None,
+) -> bool:
+    """Start a background polling job for a video.
+
+    If a polling job already exists for this video, it's cancelled first.
+
+    Args:
+        video_path: Path to video file
+        settings: Configuration
+
+    Returns:
+        True if polling was started
+    """
+    settings = settings or get_settings()
+
+    # Cancel any existing polling for this file
+    _cancel_polling(video_path)
+
+    key = str(video_path.resolve())
+    cancel_event = threading.Event()
+    _polling_jobs[key] = cancel_event
+
+    thread = threading.Thread(
+        target=_polling_worker,
+        args=(video_path, settings, cancel_event),
+        daemon=True,
+        name=f"submerge-poll-{video_path.name}",
+    )
+    thread.start()
+    return True
+
+
 def get_lock_path(video_path: Path) -> Path:
     """Return the lock file path for a video."""
     return video_path.parent / f".{video_path.stem}.sub-tools.lock"
@@ -378,26 +372,26 @@ def process_bilingual_merge(
     created_files: list[Path] = []
 
     merge_config = MergeConfig(
-        color_bottom=settings.color_bottom,
-        color_top=settings.color_top,
+        color_bottom=settings.bottom_color,
+        color_top=settings.top_color,
         fontsize=settings.fontsize,
-        font_bottom=getattr(settings, "font_bottom", ""),
-        font_top=getattr(settings, "font_top", "Noto Sans KR"),
-        bold_bottom=getattr(settings, "bottom_bold", False),
-        bold_top=getattr(settings, "top_bold", False),
-        outline=getattr(settings, "bottom_outline", 2.0),
-        outline_color_bottom=getattr(settings, "bottom_outline_color", "#000000"),
-        outline_color_top=getattr(settings, "top_outline_color", "#000000"),
-        shadow=getattr(settings, "bottom_shadow", 1.0),
-        shadow_bottom=getattr(settings, "bottom_shadow", 1.0),
-        shadow_top=getattr(settings, "top_shadow", 1.0),
-        margin_v_bottom=getattr(settings, "bottom_margin_v", 30),
-        margin_v_top=getattr(settings, "top_margin_v", 15),
-        margin_h_bottom=getattr(settings, "bottom_margin_h", 20),
-        margin_h_top=getattr(settings, "top_margin_h", 20),
-        spacing_bottom=getattr(settings, "bottom_spacing", 0.0),
-        spacing_top=getattr(settings, "top_spacing", 0.0),
-        stacked_gap=getattr(settings, "stacked_gap", 8),
+        font_bottom=settings.font_bottom,
+        font_top=settings.font_top,
+        bold_bottom=settings.bottom_bold,
+        bold_top=settings.top_bold,
+        outline=settings.bottom_outline,
+        outline_color_bottom=settings.bottom_outline_color,
+        outline_color_top=settings.top_outline_color,
+        shadow=0.0,
+        shadow_bottom=settings.bottom_shadow,
+        shadow_top=settings.top_shadow,
+        margin_v_bottom=settings.bottom_margin_v,
+        margin_v_top=settings.top_margin_v,
+        margin_h_bottom=settings.bottom_margin_h,
+        margin_h_top=settings.top_margin_h,
+        spacing_bottom=settings.bottom_spacing,
+        spacing_top=settings.top_spacing,
+        stacked_gap=settings.stacked_gap,
         layout=settings.layout,
     )
 
@@ -471,7 +465,6 @@ def process_hook(
                 logger.info(f"Missing languages: {missing}")
 
                 # Persist to SQLite queue for background retry
-                from .queue import enqueue
                 enqueue(video_path, settings)
 
                 # Start background polling for missing languages
@@ -499,7 +492,6 @@ def process_hook(
             _cancel_polling(video_path)
 
             # Mark queue entry as done
-            from .queue import dequeue
             dequeue(video_path, "done", settings=settings)
 
             # Process (no sync - Bazarr already did it)

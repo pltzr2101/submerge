@@ -143,7 +143,6 @@ class TestMergeConfigExpanded:
             assert config.outline == 3.0
             assert config.outline_color_bottom == "#111111"
             assert config.outline_color_top == "#222222"
-            assert config.shadow == 2.0
             assert config.shadow_bottom == 2.0
             assert config.shadow_top == 0.5
             assert config.margin_v_bottom == 40

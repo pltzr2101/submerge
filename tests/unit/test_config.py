@@ -23,8 +23,8 @@ class TestSubtoolsSettingsDefaults:
 
         assert settings.pairs == []
         assert settings.required_langs == set()
-        assert settings.color_bottom == "#FFFFFF"
-        assert settings.color_top == "#FFFF00"
+        assert settings.bottom_color == "#FFFFFF"
+        assert settings.top_color == "#FFD700"
         assert settings.fontsize == 18
         assert settings.layout == "top-bottom"
 

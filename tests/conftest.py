@@ -37,8 +37,8 @@ def settings_fr_pl_en():
     """Settings with fr-pl and en-pl pairs."""
     return get_settings_for_test(
         pairs="fr-pl,en-pl",
-        color_bottom="#FFFFFF",
-        color_top="#FFFF00",
+        bottom_color="#FFFFFF",
+        top_color="#FFFF00",
         fontsize=18,
         layout="top-bottom",
     )
