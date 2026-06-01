@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Settings</h1>
+</div>
+
+<div class="settings-container">
+    <form id="settingsForm" class="settings-form">
+        <div class="form-group">
+            <label for="pairs">Language Pairs</label>
+            <input type="text" id="pairs" name="pairs" value="{{ settings.pairs_raw }}"
+                   placeholder="de-ko,en-de" required>
+            <small>Format: lang1-lang2,lang3-lang4 (bottom-top order)</small>
+        </div>
+
+        <div class="form-group">
+            <label for="mediaRoot">Media Root Directory</label>
+            <input type="text" id="mediaRoot" name="media_root" value="{{ settings.media_root }}"
+                   placeholder="/data">
+        </div>
+
+        <div class="form-group">
+            <label for="pollInterval">Poll Interval (seconds)</label>
+            <input type="number" id="pollInterval" name="poll_interval" value="{{ settings.poll_interval }}"
+                   min="10" max="3600">
+        </div>
+
+        <fieldset>
+            <legend>Appearance</legend>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="colorBottom">Bottom Color</label>
+                    <input type="color" id="colorBottom" name="color_bottom" value="{{ settings.color_bottom }}">
+                </div>
+                <div class="form-group">
+                    <label for="colorTop">Top Color</label>
+                    <input type="color" id="colorTop" name="color_top" value="{{ settings.color_top }}">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="fontsize">Font Size</label>
+                    <input type="number" id="fontsize" name="fontsize" value="{{ settings.fontsize }}"
+                           min="8" max="72">
+                </div>
+                <div class="form-group">
+                    <label for="layout">Layout</label>
+                    <select id="layout" name="layout">
+                        <option value="top-bottom" {% if settings.layout == 'top-bottom' %}selected{% endif %}>Top-Bottom</option>
+                        <option value="stacked" {% if settings.layout == 'stacked' %}selected{% endif %}>Stacked</option>
+                    </select>
+                </div>
+            </div>
+        </fieldset>
+
+        <div id="settingsStatus" class="status-msg hidden"></div>
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+    </form>
+
+    <div class="settings-info">
+        <h2>Active Polling Jobs</h2>
+        <div id="activePolls">
+            <span class="loading-text">Loading...</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData.entries());
+        try {
+            const resp = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data),
+            });
+            const result = await resp.json();
+            showSettingsStatus(result.status === 'ok' ? 'Settings applied (runtime only)' : result.message, result.status);
+        } catch (err) {
+            showSettingsStatus('Failed: ' + err.message, 'error');
+        }
+    });
+
+    loadPolls();
+    setInterval(loadPolls, 10000);
+});
+
+async function loadPolls() {
+    try {
+        const resp = await fetch('/api/polls');
+        const data = await resp.json();
+        const el = document.getElementById('activePolls');
+        if (data.polls && data.polls.length > 0) {
+            el.innerHTML = '<ul>' + data.polls.map(p => '<li>' + p + '</li>').join('') + '</ul>';
+        } else {
+            el.innerHTML = '<span class="empty-text">No active polling jobs</span>';
+        }
+    } catch (e) {
+        document.getElementById('activePolls').innerHTML = '<span class="error-text">Failed to load</span>';
+    }
+}
+
+function showSettingsStatus(msg, type) {
+    const el = document.getElementById('settingsStatus');
+    el.textContent = msg;
+    el.className = 'status-msg status-' + (type === 'ok' ? 'success' : type);
+    setTimeout(() => el.classList.add('hidden'), 4000);
+}
+</script>
+{% endblock %}

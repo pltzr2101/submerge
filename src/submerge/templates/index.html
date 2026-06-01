@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Media Overview</h1>
+    <div class="toolbar">
+        <select id="filterSelect" class="filter-select">
+            <option value="all">All</option>
+            <option value="needs-merge" selected>Not Merged</option>
+            <option value="merged">Merged</option>
+            <option value="missing-langs">Missing Languages</option>
+            <option value="error">Error</option>
+        </select>
+        <button id="btnScan" class="btn btn-primary">Scan All</button>
+        <button id="btnBatchMerge" class="btn btn-success">Merge All Missing</button>
+    </div>
+</div>
+
+<div id="statusMsg" class="status-msg hidden"></div>
+<div id="loadingSpinner" class="spinner hidden"></div>
+
+<table class="media-table" id="mediaTable">
+    <thead>
+        <tr>
+            <th>Video</th>
+            <th>Directory</th>
+            {% for lang in langs %}
+            <th class="status-col">{{ lang|upper }}</th>
+            {% endfor %}
+            {% for pair in pairs %}
+            <th class="status-col">{{ pair }}</th>
+            {% endfor %}
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody id="mediaTbody">
+        <tr><td colspan="100" class="loading-cell">Loading...</td></tr>
+    </tbody>
+</table>
+
+<div class="log-section">
+    <h2>Recent Activity</h2>
+    <div id="logViewer" class="log-viewer">
+        <div class="log-entry">Connecting to log stream...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PAIRS = {{ pairs | tojson }};
+const LANGS = {{ langs | tojson }};
+let allEntries = [];
+let currentFilter = 'needs-merge';
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('filterSelect').addEventListener('change', (e) => {
+        currentFilter = e.target.value;
+        renderTable();
+    });
+    document.getElementById('btnScan').addEventListener('click', doScan);
+    document.getElementById('btnBatchMerge').addEventListener('click', doBatchMerge);
+    loadMedia();
+    connectLogStream();
+});
+
+async function loadMedia() {
+    showLoading(true);
+    try {
+        const resp = await fetch('/api/media');
+        allEntries = await resp.json();
+        renderTable();
+    } catch (e) {
+        showStatus('Failed to load media: ' + e.message, 'error');
+    }
+    showLoading(false);
+}
+
+function getRowClass(entry) {
+    if (!entry.all_langs_present) return 'row-missing';
+    if (!entry.all_merged) return 'row-needs-merge';
+    return 'row-merged';
+}
+
+function renderTable() {
+    const tbody = document.getElementById('mediaTbody');
+    let filtered = allEntries;
+    if (currentFilter === 'needs-merge') {
+        filtered = allEntries.filter(e => e.all_langs_present && !e.all_merged);
+    } else if (currentFilter === 'merged') {
+        filtered = allEntries.filter(e => e.all_merged);
+    } else if (currentFilter === 'missing-langs') {
+        filtered = allEntries.filter(e => !e.all_langs_present);
+    } else if (currentFilter === 'error') {
+        filtered = allEntries.filter(e => e.error);
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="100" class="empty-cell">No entries found</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(entry => {
+        const cls = getRowClass(entry);
+        let actions = '';
+        if (entry.all_langs_present && !entry.all_merged) {
+            actions += `<button class="btn btn-sm btn-success" onclick="doMerge('${escAttr(entry.video_path)}')">Merge</button> `;
+        }
+        if (entry.all_merged) {
+            actions += `<span class="badge badge-ok">Done</span> `;
+        }
+        // Sync buttons
+        for (const lang of LANGS) {
+            const st = entry.subtitle_status[lang];
+            if (st && st.present) {
+                actions += `<button class="btn btn-sm" title="Sync ${lang.toUpperCase()}" onclick="doSync('${escAttr(st.path)}', '${lang}')">↻${lang.toUpperCase()}</button> `;
+            }
+        }
+
+        let cells = '';
+        cells += `<td><span class="video-name" title="${escAttr(entry.video_path)}">${escHtml(entry.video_name)}</span></td>`;
+        cells += `<td class="dir-cell">${escHtml(entry.parent_dir)}</td>`;
+
+        for (const lang of LANGS) {
+            const st = entry.subtitle_status[lang];
+            const icon = st && st.present ? '✅' : '❌';
+            const title = st && st.path ? escAttr(st.path) : 'Not found';
+            cells += `<td class="status-col" title="${title}">${icon}</td>`;
+        }
+
+        for (const pair of PAIRS) {
+            const ms = entry.merged_status[pair];
+            const icon = ms && ms.present ? '✅' : '❌';
+            cells += `<td class="status-col">${icon}</td>`;
+        }
+
+        cells += `<td class="actions-col">${actions}</td>`;
+
+        return `<tr class="${cls}">${cells}</tr>`;
+    }).join('');
+}
+
+async function doMerge(videoPath) {
+    showStatus('Merging...', 'info');
+    try {
+        const resp = await fetch('/api/merge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({video_path: videoPath}),
+        });
+        const data = await resp.json();
+        if (data.status === 'merged') {
+            showStatus('Merge completed: ' + (data.files || []).join(', '), 'success');
+        } else if (data.status === 'polling') {
+            showStatus('Polling started for missing languages', 'info');
+        } else {
+            showStatus('Merge status: ' + data.status + (data.reason ? ' - ' + data.reason : ''), 'warning');
+        }
+    } catch (e) {
+        showStatus('Merge failed: ' + e.message, 'error');
+    }
+    setTimeout(loadMedia, 2000);
+}
+
+async function doSync(subtitlePath, lang) {
+    if (!subtitlePath) return;
+    showStatus(`Syncing ${lang.toUpperCase()}...`, 'info');
+    try {
+        const resp = await fetch('/api/sync', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({subtitle_path: subtitlePath, lang: lang}),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            showStatus(`Sync complete for ${lang.toUpperCase()}`, 'success');
+        } else {
+            showStatus(`Sync: ${data.message || data.status}`, 'warning');
+        }
+    } catch (e) {
+        showStatus('Sync failed: ' + e.message, 'error');
+    }
+}
+
+async function doScan() {
+    showStatus('Scanning...', 'info');
+    try {
+        const resp = await fetch('/scan', {method: 'POST'});
+        const data = await resp.json();
+        showStatus(`Scan complete: ${data.scanned || 0} videos, ${data.merged || 0} merged`, 'success');
+    } catch (e) {
+        showStatus('Scan failed: ' + e.message, 'error');
+    }
+    loadMedia();
+}
+
+async function doBatchMerge() {
+    showStatus('Batch merging...', 'info');
+    try {
+        const resp = await fetch('/scan', {method: 'POST'});
+        const data = await resp.json();
+        showStatus(`Batch complete: ${data.scanned || 0} scanned, ${data.merged || 0} merged, ${data.polling || 0} polling`, 'success');
+    } catch (e) {
+        showStatus('Batch merge failed: ' + e.message, 'error');
+    }
+    setTimeout(loadMedia, 3000);
+}
+
+function showStatus(msg, type) {
+    const el = document.getElementById('statusMsg');
+    el.textContent = msg;
+    el.className = 'status-msg status-' + type;
+    setTimeout(() => el.classList.add('hidden'), 5000);
+}
+
+function showLoading(show) {
+    document.getElementById('loadingSpinner').classList.toggle('hidden', !show);
+}
+
+function connectLogStream() {
+    const viewer = document.getElementById('logViewer');
+    const evtSource = new EventSource('/logs/stream');
+    evtSource.onmessage = (event) => {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.textContent = event.data;
+        viewer.appendChild(entry);
+        if (viewer.children.length > 100) {
+            viewer.removeChild(viewer.firstChild);
+        }
+        viewer.scrollTop = viewer.scrollHeight;
+    };
+    evtSource.onerror = () => {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry log-error';
+        entry.textContent = 'Log stream disconnected. Retrying...';
+        viewer.appendChild(entry);
+    };
+}
+
+function escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function escAttr(str) {
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
+}
+</script>
+{% endblock %}

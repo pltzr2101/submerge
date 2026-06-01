@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import threading
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from filelock import FileLock, Timeout
@@ -15,6 +17,19 @@ logger = logging.getLogger(__name__)
 
 # Constantes
 LOCK_TIMEOUT = 5  # Secondes
+
+# ISO 639-1 -> ISO 639-2/T mapping for 3-letter code fallback lookups
+ISO_639_1_TO_2 = {
+    "de": "deu", "en": "eng", "ko": "kor", "fr": "fra", "pl": "pol",
+    "es": "spa", "it": "ita", "ja": "jpn", "zh": "zho", "ru": "rus",
+    "pt": "por", "ar": "ara", "nl": "nld", "sv": "swe", "no": "nor",
+    "da": "dan", "fi": "fin", "tr": "tur", "el": "ell", "cs": "ces",
+    "hu": "hun", "ro": "ron", "uk": "ukr", "th": "tha", "vi": "vie",
+    "hi": "hin", "bn": "ben", "id": "ind", "ms": "msa", "tl": "tgl",
+}
+
+# Track active polling jobs: video_path -> threading.Event (set to cancel)
+_polling_jobs: dict[str, threading.Event] = {}
 
 
 class HookError(Exception):
@@ -33,7 +48,7 @@ class ProcessingError(HookError):
 class HookResult:
     """Hook result."""
 
-    status: str  # "merged", "waiting", "skipped", "already_processing"
+    status: str  # "merged", "waiting", "skipped", "already_processing", "polling"
     files: list[str] | None = None
     present: list[str] | None = None
     missing: list[str] | None = None
@@ -62,10 +77,48 @@ def validate_lang(lang: str, settings: SubtoolsSettings | None = None) -> str:
     return lang_lower
 
 
+def _get_lang_patterns(video_stem: str, lang: str) -> list[str]:
+    """Build all possible filename patterns for a language code.
+
+    Handles both 2-letter (ISO 639-1) and 3-letter (ISO 639-2) codes
+    that Bazarr/Lingarr might use.
+
+    Args:
+        video_stem: Video filename stem (without extension)
+        lang: 2-letter language code
+
+    Returns:
+        List of filename patterns to try, in priority order
+    """
+    lang3 = ISO_639_1_TO_2.get(lang, lang)
+    extensions = [".srt", ".ass"]
+    hi_extensions = [".hi.srt", ".hi.ass"]
+    forced = [".forced.srt", ".forced.ass"]
+
+    patterns = []
+    # Priority: 2-letter regular > 2-letter HI > 3-letter regular > 3-letter HI > forced variants
+    for ext in extensions:
+        patterns.append(f"{video_stem}.{lang}{ext}")
+    for ext in hi_extensions:
+        patterns.append(f"{video_stem}.{lang}{ext}")
+    if lang3 != lang:
+        for ext in extensions:
+            patterns.append(f"{video_stem}.{lang3}{ext}")
+        for ext in hi_extensions:
+            patterns.append(f"{video_stem}.{lang3}{ext}")
+    for ext in forced:
+        patterns.append(f"{video_stem}.{lang}{ext}")
+        if lang3 != lang:
+            patterns.append(f"{video_stem}.{lang3}{ext}")
+
+    return patterns
+
+
 def find_subtitle_path(video_path: Path, lang: str) -> Path | None:
     """Find subtitle file for a language.
 
     Searches in order: .srt, .ass, .hi.srt, .hi.ass
+    Also tries 3-letter ISO 639-2 codes (e.g., 'deu' for 'de').
 
     Args:
         video_path: Path to video file
@@ -77,13 +130,7 @@ def find_subtitle_path(video_path: Path, lang: str) -> Path | None:
     video_dir = video_path.parent
     video_stem = video_path.stem
 
-    # Patterns to search in priority order
-    patterns = [
-        f"{video_stem}.{lang}.srt",
-        f"{video_stem}.{lang}.ass",
-        f"{video_stem}.{lang}.hi.srt",  # Hearing impaired
-        f"{video_stem}.{lang}.hi.ass",
-    ]
+    patterns = _get_lang_patterns(video_stem, lang)
 
     for pattern in patterns:
         path = video_dir / pattern
@@ -142,6 +189,107 @@ def get_present_and_missing(
     return present, missing
 
 
+def _cancel_polling(video_path: Path) -> None:
+    """Cancel any active polling for a video."""
+    key = str(video_path.resolve())
+    event = _polling_jobs.pop(key, None)
+    if event is not None:
+        event.set()
+        logger.info(f"Polling cancelled for {video_path.name}")
+
+
+def _polling_worker(
+    video_path: Path,
+    settings: SubtoolsSettings,
+    cancel_event: threading.Event,
+) -> None:
+    """Background worker that polls for missing languages and triggers merge.
+
+    Args:
+        video_path: Path to video file
+        settings: Configuration
+        cancel_event: Set to stop polling
+    """
+    poll_interval = settings.poll_interval
+    max_attempts = 30  # Max 30 retries (~30 min with 60s interval)
+
+    logger.info(
+        f"Polling started for {video_path.name} "
+        f"(interval={poll_interval}s, max={max_attempts} attempts)"
+    )
+
+    for attempt in range(1, max_attempts + 1):
+        if cancel_event.wait(timeout=poll_interval):
+            logger.info(f"Polling cancelled for {video_path.name} after {attempt} attempts")
+            return
+
+        try:
+            sub_paths = check_all_languages_present(video_path, settings)
+            if sub_paths is not None:
+                logger.info(
+                    f"All languages present for {video_path.name} (attempt {attempt})"
+                )
+
+                if should_skip_existing(video_path, sub_paths, settings):
+                    logger.info(f"Skipping {video_path.name}: outputs already up-to-date")
+                    return
+
+                created_files = process_bilingual_merge(video_path, sub_paths, settings)
+                logger.info(
+                    f"Polling merge complete for {video_path.name}: "
+                    f"{[f.name for f in created_files]}"
+                )
+                return
+
+            present, missing = get_present_and_missing(video_path, settings)
+            logger.debug(
+                f"Polling {video_path.name} (attempt {attempt}/{max_attempts}): "
+                f"present={present}, missing={missing}"
+            )
+        except Exception as e:
+            logger.error(f"Polling error for {video_path.name} (attempt {attempt}): {e}")
+
+    logger.warning(f"Polling exhausted for {video_path.name} after {max_attempts} attempts")
+
+    # Cleanup
+    key = str(video_path.resolve())
+    _polling_jobs.pop(key, None)
+
+
+def start_polling(
+    video_path: Path,
+    settings: SubtoolsSettings | None = None,
+) -> bool:
+    """Start a background polling job for a video.
+
+    If a polling job already exists for this video, it's cancelled first.
+
+    Args:
+        video_path: Path to video file
+        settings: Configuration
+
+    Returns:
+        True if polling was started
+    """
+    settings = settings or get_settings()
+
+    # Cancel any existing polling for this file
+    _cancel_polling(video_path)
+
+    key = str(video_path.resolve())
+    cancel_event = threading.Event()
+    _polling_jobs[key] = cancel_event
+
+    thread = threading.Thread(
+        target=_polling_worker,
+        args=(video_path, settings, cancel_event),
+        daemon=True,
+        name=f"submerge-poll-{video_path.name}",
+    )
+    thread.start()
+    return True
+
+
 def get_output_path(video_path: Path, lang_bottom: str, lang_top: str) -> Path:
     """Generate output path for a language pair.
 
@@ -184,6 +332,8 @@ def should_skip_existing(
 
         # Check that .ass is newer than both sources
         for lang in (lang_bottom, lang_top):
+            if lang not in sub_paths:
+                return False
             source_path = sub_paths[lang]
             source_mtime = source_path.stat().st_mtime
             if source_mtime > output_mtime:
@@ -297,10 +447,19 @@ def process_hook(
             if sub_paths is None:
                 present, missing = get_present_and_missing(video_path, settings)
                 logger.info(f"Missing languages: {missing}")
+
+                # Start background polling for missing languages
+                start_polling(video_path, settings)
+                logger.info(
+                    f"Background polling started for {video_path.name}, "
+                    f"will retry every {settings.poll_interval}s"
+                )
+
                 return HookResult(
-                    status="waiting",
+                    status="polling",
                     present=present,
                     missing=missing,
+                    reason=f"Polling every {settings.poll_interval}s until all languages available",
                 )
 
             # Check if we can skip
@@ -309,6 +468,9 @@ def process_hook(
                     status="skipped",
                     reason="already_exists",
                 )
+
+            # Cancel any active polling since we're merging now
+            _cancel_polling(video_path)
 
             # Process (no sync - Bazarr already did it)
             created_files = process_bilingual_merge(video_path, sub_paths, settings)
@@ -327,3 +489,8 @@ def process_hook(
             lock_path.unlink(missing_ok=True)
         except Exception:
             pass  # Ignore if file is still in use
+
+
+def get_active_polls() -> list[str]:
+    """Return list of video paths currently being polled."""
+    return list(_polling_jobs.keys())
