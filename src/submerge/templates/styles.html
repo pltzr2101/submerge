@@ -8,7 +8,8 @@
         <select id="presetSelect" class="filter-select">
             <option value="">-- Load Preset --</option>
         </select>
-        <button id="btnSavePreset" class="btn">Save As...</button>
+        <button id="btnUpdatePreset" class="btn btn-primary" disabled title="Kein Preset geladen">Änderungen speichern</button>
+        <button id="btnSavePreset" class="btn">Neues Preset...</button>
         <button id="btnExportAss" class="btn">Copy ASS Styles</button>
         <span id="exportMsg" class="status-msg hidden" style="display:inline"></span>
     </div>
@@ -96,6 +97,7 @@ const langTop = '{{ lang_top }}';
 let currentTab = 'bottom';
 let currentBgImage = null;
 let defaultTemplate = '{{ default_template }}';
+let currentPresetName = null;  // Name of currently loaded preset
 
 const state = {
     bottom_fontsize: config.bottom_fontsize || 20,
@@ -398,6 +400,11 @@ document.addEventListener('DOMContentLoaded', () => {
         savePreset(name);
     });
 
+    document.getElementById('btnUpdatePreset').addEventListener('click', () => {
+        if (!currentPresetName) return;
+        updatePreset(currentPresetName);
+    });
+
     document.getElementById('btnExportAss').addEventListener('click', () => {
         const bottomFont = state.font_bottom || 'Arial';
         const topFont = state.font_top || 'Arial';
@@ -411,6 +418,11 @@ Style: top,${topFont},${state.top_fontsize},&H00${state.top_color.replace('#',''
             setTimeout(() => el.classList.add('hidden'), 2000);
         });
     });
+
+    // Auto-load default template if one is set and differs from env config
+    if (defaultTemplate) {
+        loadPreset(defaultTemplate);
+    }
 
     renderPreview();
 });
@@ -427,6 +439,8 @@ async function loadPresets() {
             sel.appendChild(opt);
         });
         renderPresetList(data.presets);
+        // Pre-select the current default in the dropdown
+        if (defaultTemplate) sel.value = defaultTemplate;
     } catch(e) {}
 }
 
@@ -438,6 +452,25 @@ async function loadPreset(name) {
         // Rebuild UI
         buildField('bottom', 'bottom_', 'Bottom');
         buildField('top', 'top_', 'Top');
+        // Sync layout radio buttons
+        document.querySelectorAll('input[name="layout"]').forEach(r => {
+            r.checked = (r.value === state.layout);
+        });
+        // Show/hide stacked gap
+        const gapGroup = document.getElementById('stackedGapGroup');
+        if (gapGroup) gapGroup.style.display = state.layout === 'stacked' ? 'block' : 'none';
+        // Sync stacked gap slider
+        const gapSlider = document.getElementById('stackedGap');
+        const gapVal = document.getElementById('stackedGapVal');
+        if (gapSlider) gapSlider.value = state.stacked_gap;
+        if (gapVal) gapVal.textContent = state.stacked_gap;
+        // Track loaded preset for update button
+        currentPresetName = name;
+        const updateBtn = document.getElementById('btnUpdatePreset');
+        if (updateBtn) {
+            updateBtn.disabled = false;
+            updateBtn.title = `Änderungen in "${name}" speichern`;
+        }
         setTimeout(() => renderPreview(), 50);
     } catch(e) {}
 }
@@ -449,8 +482,42 @@ async function savePreset(name) {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({name, styles: state})
         });
-        alert('Preset saved!');
-        location.reload();
+        // Add new preset to dropdown if not already present
+        const sel = document.getElementById('presetSelect');
+        if (![...sel.options].some(o => o.value === name)) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            sel.appendChild(opt);
+        }
+        sel.value = name;
+        // Update preset list panel
+        const allPresets = Array.from(sel.options)
+            .filter(o => o.value)
+            .map(o => ({ name: o.value }));
+        renderPresetList(allPresets);
+        // Show inline confirmation instead of alert
+        const exportMsg = document.getElementById('exportMsg');
+        exportMsg.textContent = `Saved "${name}" ✓`;
+        exportMsg.className = 'status-msg status-success';
+        exportMsg.style.display = 'inline';
+        setTimeout(() => { exportMsg.style.display = 'none'; }, 2500);
+    } catch(e) { alert('Failed: ' + e.message); }
+}
+
+async function updatePreset(name) {
+    try {
+        const resp = await fetch('/api/presets', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, styles: state})
+        });
+        if (!resp.ok) throw new Error('Save failed');
+        const exportMsg = document.getElementById('exportMsg');
+        exportMsg.textContent = `"${name}" aktualisiert ✓`;
+        exportMsg.className = 'status-msg status-success';
+        exportMsg.style.display = 'inline';
+        setTimeout(() => { exportMsg.style.display = 'none'; }, 2500);
     } catch(e) { alert('Failed: ' + e.message); }
 }
 
