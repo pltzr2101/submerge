@@ -232,7 +232,7 @@ async def ui_settings(request: Request):
 
 
 # =============================================================================
-# Bazarr Hook (unchanged API)
+# Bazarr & Lingarr Hooks
 # =============================================================================
 
 
@@ -242,25 +242,29 @@ def hook(
     subtitle: str = Form(..., description="Path to downloaded subtitle"),
     lang: str = Form(..., description="Language code (fr, pl, en)"),
 ) -> dict:
-    """Bazarr post-processing hook.
+    """Bazarr post-processing hook."""
+    return _handle_hook(video, subtitle, lang, source="bazarr")
 
-    Receives information about a subtitle downloaded by Bazarr.
-    Checks if all required languages are present.
-    If yes, generates bilingual .ass files.
 
-    Returns:
-        - 200 {"status": "merged", "files": [...]} if merge completed
-        - 200 {"status": "polling", "present": [...], "missing": [...]} if waiting
-        - 200 {"status": "skipped", "reason": "already_exists"} if .ass already present
-        - 200 {"status": "already_processing"} if lock busy
-        - 400 {"status": "error", "message": "..."} if invalid parameter
-        - 500 {"status": "error", "message": "..."} if internal error
+@app.post("/lingarr-hook")
+def lingarr_hook(
+    video: str = Form(..., description="Path to video file"),
+    subtitle: str = Form(..., description="Path to translated subtitle"),
+    lang: str = Form(..., description="Language code (fr, pl, en)"),
+) -> dict:
+    """Lingarr post-processing hook.
+
+    Same behavior as /hook but with separate logging for Lingarr events.
     """
-    # Validate paths before processing
+    return _handle_hook(video, subtitle, lang, source="lingarr")
+
+
+def _handle_hook(video: str, subtitle: str, lang: str, source: str) -> dict:
+    """Shared hook handler for Bazarr and Lingarr."""
     video_path = validate_path(video, "video")
     subtitle_path = validate_path(subtitle, "subtitle")
 
-    logger.info(f"Hook request: video={video_path.name}, lang={lang}")
+    logger.info(f"[{source}] Hook: video={video_path.name}, lang={lang}")
 
     try:
         result = process_hook(video_path, subtitle_path, lang)

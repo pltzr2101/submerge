@@ -25,8 +25,23 @@ class MergeConfig:
     color_top: str = "#FFFF00"  # Yellow
     fontsize: int = 20
     font_name: str = "Roboto"
+    font_bottom: str = ""  # Empty = inherit font_name
+    font_top: str = ""  # Empty = inherit font_name
+    bold_bottom: bool = False
+    bold_top: bool = False
     outline: float = 2.0
+    outline_color_bottom: str = "#000000"
+    outline_color_top: str = "#000000"
     shadow: float = 0.0  # Disabled by default - cleaner look
+    shadow_bottom: float | None = None  # None = inherit shadow
+    shadow_top: float | None = None
+    margin_v_bottom: int = 30
+    margin_v_top: int = 15
+    margin_h_bottom: int = 20
+    margin_h_top: int = 20
+    spacing_bottom: float = 0.0
+    spacing_top: float = 0.0
+    stacked_gap: int = 8
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
 
 
@@ -114,46 +129,77 @@ def merge_bilingual(
     # Create output file
     merged = SSAFile()
 
+    # Resolve fonts and shadows
+    font_bottom = config.font_bottom or config.font_name or "Arial"
+    font_top = config.font_top or config.font_name or "Arial"
+    shadow_bottom = config.shadow_bottom if config.shadow_bottom is not None else config.shadow
+    shadow_top = config.shadow_top if config.shadow_top is not None else config.shadow
+
+    bold_bottom = -1 if config.bold_bottom else 0
+    bold_top = -1 if config.bold_top else 0
+
     # Define styles based on layout
     if config.layout == "stacked":
         # Both at bottom, one above the other
-        margin_top = _calculate_margin_top(config.fontsize)
+        margin_top_calc = config.margin_v_bottom + (config.stacked_gap or 8)
 
         merged.styles["bottom"] = SSAStyle(
-            fontname=config.font_name,
+            fontname=font_bottom,
             fontsize=config.fontsize,
+            bold=bold_bottom,
             primarycolor=_hex_to_color(config.color_bottom),
+            outlinecolor=_hex_to_color(config.outline_color_bottom),
             alignment=Alignment.BOTTOM_CENTER,
-            marginv=10,
+            marginv=config.margin_v_bottom,
+            marginl=config.margin_h_bottom,
+            marginr=config.margin_h_bottom,
             outline=config.outline,
-            shadow=config.shadow,
+            shadow=shadow_bottom,
+            spacing=config.spacing_bottom,
         )
         merged.styles["top"] = SSAStyle(
-            fontname=config.font_name,
+            fontname=font_top,
             fontsize=config.fontsize,
+            bold=bold_top,
             primarycolor=_hex_to_color(config.color_top),
+            outlinecolor=_hex_to_color(config.outline_color_top),
             alignment=Alignment.BOTTOM_CENTER,
-            marginv=margin_top,
+            marginv=margin_top_calc,
+            marginl=config.margin_h_top,
+            marginr=config.margin_h_top,
             outline=config.outline,
-            shadow=config.shadow,
+            shadow=shadow_top,
+            spacing=config.spacing_top,
         )
     else:
         # top-bottom (default): one at top, one at bottom
         merged.styles["bottom"] = SSAStyle(
-            fontname=config.font_name,
+            fontname=font_bottom,
             fontsize=config.fontsize,
+            bold=bold_bottom,
             primarycolor=_hex_to_color(config.color_bottom),
+            outlinecolor=_hex_to_color(config.outline_color_bottom),
             alignment=Alignment.BOTTOM_CENTER,
+            marginv=config.margin_v_bottom,
+            marginl=config.margin_h_bottom,
+            marginr=config.margin_h_bottom,
             outline=config.outline,
-            shadow=config.shadow,
+            shadow=shadow_bottom,
+            spacing=config.spacing_bottom,
         )
         merged.styles["top"] = SSAStyle(
-            fontname=config.font_name,
+            fontname=font_top,
             fontsize=config.fontsize,
+            bold=bold_top,
             primarycolor=_hex_to_color(config.color_top),
+            outlinecolor=_hex_to_color(config.outline_color_top),
             alignment=Alignment.TOP_CENTER,
+            marginv=config.margin_v_top,
+            marginl=config.margin_h_top,
+            marginr=config.margin_h_top,
             outline=config.outline,
-            shadow=config.shadow,
+            shadow=shadow_top,
+            spacing=config.spacing_top,
         )
 
     # Add events with their styles

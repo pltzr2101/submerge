@@ -86,11 +86,41 @@ class SubtoolsSettings(BaseSettings):
     poll_interval: int = 60
     retry_timeout_h: int = 48
 
+    # UI auth
+    ui_password: str = ""
+
     # Apparence
     color_bottom: str = "#FFFFFF"
     color_top: str = "#FFFF00"
     fontsize: int = 18
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
+
+    # Bottom subtitle style (e.g., DE)
+    bottom_fontsize: int = 20
+    bottom_color: str = "#FFFFFF"
+    bottom_outline_color: str = "#000000"
+    bottom_outline: float = 2.0
+    bottom_shadow: float = 1.0
+    bottom_bold: bool = False
+    bottom_margin_v: int = 30
+    bottom_margin_h: int = 20
+    bottom_spacing: float = 0.0
+    font_bottom: str = ""  # Empty = Arial as ASS fallback
+
+    # Top subtitle style (e.g., KO)
+    top_fontsize: int = 18
+    top_color: str = "#FFD700"
+    top_outline_color: str = "#000000"
+    top_outline: float = 2.0
+    top_shadow: float = 1.0
+    top_bold: bool = False
+    top_margin_v: int = 15
+    top_margin_h: int = 20
+    top_spacing: float = 0.0
+    font_top: str = "Noto Sans KR"
+
+    # Stacked layout
+    stacked_gap: int = 8
 
     @field_validator("pairs_raw")
     @classmethod
