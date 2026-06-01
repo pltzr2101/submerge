@@ -1024,6 +1024,11 @@ def _get_schedule_merge_settings() -> SubtoolsSettings:
         if template in presets:
             overrides = dict(presets[template])
             overrides["pairs_raw"] = base.pairs_raw
+
+            # Defense-in-depth: filter out unknown keys (e.g. UI-only fields)
+            known_fields = set(SubtoolsSettings.model_fields.keys())
+            overrides = {k: v for k, v in overrides.items() if k in known_fields}
+
             return get_settings_for_test(**overrides)
     return base
 
@@ -1147,7 +1152,10 @@ def api_presets_delete(name: str):
 
     presets = _load_presets()
     if name not in presets:
-        raise HTTPException(status_code=404)
+        raise HTTPException(
+            status_code=404,
+            detail={"status": "error", "message": "Preset not found"},
+        )
 
     # Prevent deleting the currently active default template
     app_settings = _load_app_settings()
