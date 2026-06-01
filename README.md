@@ -1,290 +1,231 @@
-# SubMerge
+# Submerge
 
-Automated bilingual subtitle generation for your media stack. Combines two single-language subtitles into a professionally styled bilingual ASS file — with Web UI, Bazarr/Lingarr integration, and live style preview.
+Automatic bilingual subtitle merge service for ARR stacks. Combines two single-language subtitles into a professionally styled bilingual ASS file — with Web UI, Bazarr/Lingarr integration, live style preview, and background retry queue.
 
-## Why?
+[![Python](https://img.shields.io/badge/python-3.10+-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.0.3-brightgreen)](https://github.com/pltzr2101/submerge/releases)
+[![Tests](https://img.shields.io/badge/tests-100%20passing-success)](tests/)
 
-Watching movies with someone who speaks another language? Platforms never offer bilingual subtitles, and manually merging SRT files fails because of desynchronization.
+## Table of Contents
 
-SubMerge downloads/extracts subtitles, synchronizes them against a reference, and merges everything into a single ASS file with distinct positioning — one language at bottom, one at top (or stacked).
-
-## Quick Start
-
-```bash
-# Install
-git clone https://github.com/pltzr2101/submerge.git && cd submerge
-pip install -e .
-
-# Merge two subtitles
-submerge merge french.srt korean.srt -o bilingual.ass
-```
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Bazarr Integration](#bazarr-integration)
+- [API Reference](#api-reference)
+- [Web UI](#web-ui)
+- [Development](#development)
+- [License](#license)
 
 ## Features
 
-- **CLI** — merge, sync, extract, probe subtitle tracks
-- **FastAPI Server** — REST API on port 8282 with Web UI
-- **Web UI** — Dashboard, Style Editor, Settings, Log Viewer
-- **Bazarr Integration** — `/hook` webhook fires when Bazarr downloads subtitles
-- **Lingarr Integration** — `/lingarr-hook` processes AI-translated subtitles
-- **Background Retry** — SQLite-backed queue polls until all languages arrive
-- **ISO 639 Aliasing** — Accepts `de`, `deu`, `ger`, `de-DE`, `de_DE` transparently
-- **Style Presets** — 3 built-in presets + custom save/load via UI
-- **Canvas Preview** — Real-time subtitle style preview in browser
-- **Frame Extraction** — Extract video frames as style preview background
-- **Basic Auth** — Optional password protection for the Web UI
-- **Rate Limiting** — Per-IP rate limiting on all endpoints
-- **Docker** — Ready-to-deploy container with healthcheck
+- **Automatic bilingual merge** — e.g. `de.srt` + `ko.srt` → `de-ko.ass` with distinct positioning (one language at bottom, one at top, or stacked)
+- **Bazarr & Lingarr webhook integration** with polling fallback when subtitles are still downloading/translating
+- **Web UI**: media overview dashboard, manual merge/sync buttons, queue management, live SSE log stream
+- **Style presets** — 3 built-in (Standard, Cinema Dark, Bright) + create and save your own via the UI
+- **Basic Auth + rate limiting** for Web UI protection
+- **ffsubsync integration** for subtitle synchronization (sub-to-sub or audio-based)
+- **Docker** — single-container deployment with healthcheck
+- **CLI** — `merge`, `sync`, `extract`, `list-tracks`, `serve`
 
 ## Prerequisites
 
-- Python 3.10+
-- ffmpeg (`brew install ffmpeg` / `apt install ffmpeg`)
+- **Docker + Docker Compose** (recommended) — or Python 3.10+ with ffmpeg for manual install
+- **Bazarr + Lingarr** for full automation (Submerge also works standalone via CLI or Web UI)
 
-## CLI Commands
+## Quick Start
 
-### `merge` — Combine two SRTs into one bilingual ASS
-
-```bash
-submerge merge bottom.srt top.srt -o bilingual.ass \
-  --color1 "#FFFFFF" --color2 "#FFFF00" \
-  --fontsize 20 --layout stacked
-```
-
-Options: `--color1`, `--color2`, `--fontsize`, `--fontname`, `--outline`, `--shadow`, `--layout` (`top-bottom`|`stacked`), `--margin-bottom`, `--margin-top`, `--stacked-gap`.
-
-### `sync` — Align subtitle timing
-
-```bash
-# Fast: sync against a reference subtitle
-submerge sync off.srt --ref reference.srt -o synced.srt
-
-# Slower: sync against video audio (uses ffmpeg+faster-whisper)
-submerge sync off.srt --video movie.mkv -o synced.srt
-```
-
-### `extract` — Extract embedded subtitles from MKV
-
-```bash
-submerge extract movie.mkv --lang en -o english.srt
-submerge extract movie.mkv --track 2 -o english.srt
-```
-
-### `list-tracks` — Show subtitle/audio tracks
-
-```bash
-submerge list-tracks movie.mkv
-```
-
-## Web UI
-
-Point your browser to `http://localhost:8282/`:
-
-| Page | Description |
-|------|-------------|
-| `/` | **Dashboard** — media overview, filter by status, one-click merge/sync, batch operations |
-| `/styles` | **Style Editor** — two-tab (Bottom/Top) controls, Canvas preview, CJK font picker, presets, ASS export |
-| `/settings` | **Settings** — view & override all SUBTOOLS_* env vars at runtime |
-| `/logs/stream` | **Log Viewer** — SSE stream of merge operations |
-
-## Docker Deployment
-
-### Basic (standalone)
-
-```bash
-docker run -d -p 8282:8282 \
-  -v /path/to/media:/data \
-  -e SUBTOOLS_PAIRS="de-ko" \
-  -e SUBTOOLS_UI_PASSWORD="secret" \
-  ghcr.io/pltzr2101/submerge:latest
-```
-
-### ARR Stack Integration (Sonarr + Radarr + Bazarr + Lingarr)
-
-Add to your `docker-compose.yml`:
+Add `submerge` to your existing ARR stack `docker-compose.yml`:
 
 ```yaml
-submerge:
-  image: ghcr.io/pltzr2101/submerge:latest
-  container_name: submerge
-  environment:
-    SUBTOOLS_PAIRS: "de-ko,en-ko"
-    SUBTOOLS_MEDIA_ROOT: "/data"
-    SUBTOOLS_UI_PASSWORD: "hunter2"
-    SUBTOOLS_POLL_INTERVAL: "60"
-    SUBTOOLS_RETRY_TIMEOUT_H: "48"
-    SUBTOOLS_FONT_TOP: "Noto Sans KR"
-  volumes:
-    - /path/to/media:/data   # Same mount as Bazarr/Lingarr
-  restart: unless-stopped
+services:
+  submerge:
+    image: ghcr.io/pltzr2101/submerge:2.0.3
+    # Alternatively build locally:
+    # build: .
+    container_name: submerge
+    restart: unless-stopped
+    ports:
+      - "8282:8282"
+    volumes:
+      # IMPORTANT: must match the path Bazarr/Sonarr/Radarr use
+      - /path/to/media:/data
+    environment:
+      # REQUIRED: Language pairs (bottom-top, comma separated)
+      - SUBTOOLS_PAIRS=de-ko
+
+      # Media root inside the container
+      - SUBTOOLS_MEDIA_ROOT=/data
+
+      # Polling interval in seconds (how often to check for missing subtitles)
+      - SUBTOOLS_POLL_INTERVAL=60
+
+      # Subtitle appearance
+      - SUBTOOLS_COLOR_BOTTOM=#FFFFFF    # Bottom language color (German)
+      - SUBTOOLS_COLOR_TOP=#FFD700       # Top language color (Korean, gold)
+      - SUBTOOLS_FONTSIZE=20             # Font size
+      - SUBTOOLS_FONT_TOP=Noto Sans KR   # CJK font for top (Korean)
+      - SUBTOOLS_LAYOUT=top-bottom       # Layout: top-bottom or stacked
+
+      # Web UI authentication (leave empty for no password)
+      - SUBTOOLS_UI_USER=admin
+      - SUBTOOLS_UI_PASSWORD=
+
+      # Rate limiting: max requests per minute per IP (0 = disabled)
+      - SUBTOOLS_RATE_LIMIT_RPM=30
 ```
 
-## Bazarr Integration
-
-In Bazarr: **Settings → Subtitles → Post-Processing**, enable and set command:
-
-```
-/config/bazarr-hook.sh "{{episode}}" "{{subtitles}}" "{{subtitles_language_code2}}"
-```
-
-With `/config/bazarr-hook.sh`:
-
+Then:
 ```bash
-#!/bin/sh
-curl -sf -X POST "http://submerge:8282/hook" \
-  --data-urlencode "video=$1" \
-  --data-urlencode "subtitle=$2" \
-  --data-urlencode "lang=$3"
+docker compose up -d submerge
 ```
 
-If not all languages are available yet, SubMerge starts background polling (default: every 60s for up to 48h) and retries when Lingarr finishes translating.
+Open `http://<server-ip>:8282` for the Web UI.
 
-## Lingarr Integration
-
-Lingarr should be configured to call SubMerge's `/lingarr-hook` endpoint after each translation completes:
-
-```
-http://submerge:8282/lingarr-hook
+For standalone CLI usage:
+```bash
+pip install -e .
+submerge merge de.srt ko.srt -o bilingual.ass
 ```
 
-Same POST format as the Bazarr hook. This triggers a fresh check — if the last missing language just arrived, the merge runs immediately.
-
-## Environment Variables
+## Configuration
 
 ### Required
 
-| Variable | Example | Description |
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `SUBTOOLS_PAIRS` | `"de-ko,en-ko"` | Language pairs (bottom-top), comma-separated |
+| `SUBTOOLS_PAIRS` | — | Language pairs (bottom-top), comma-separated. Example: `de-ko,en-ko` |
 
 ### Styling
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SUBTOOLS_COLOR_BOTTOM` | `#FFFFFF` | Bottom subtitle color |
-| `SUBTOOLS_COLOR_TOP` | `#FFFF00` | Top subtitle color |
-| `SUBTOOLS_FONTSIZE` | `18` | Font size |
-| `SUBTOOLS_LAYOUT` | `top-bottom` | `top-bottom` or `stacked` |
-| `SUBTOOLS_BOTTOM_FONTSIZE` | `20` | Bottom track font size |
-| `SUBTOOLS_BOTTOM_BOLD` | `false` | Bold bottom text |
-| `SUBTOOLS_BOTTOM_OUTLINE` | `2.0` | Bottom outline width |
-| `SUBTOOLS_BOTTOM_SHADOW` | `1.0` | Bottom shadow depth |
-| `SUBTOOLS_BOTTOM_MARGIN_V` | `30` | Bottom vertical margin |
-| `SUBTOOLS_BOTTOM_MARGIN_H` | `20` | Bottom horizontal margin |
-| `SUBTOOLS_BOTTOM_SPACING` | `0.0` | Bottom character spacing |
-| `SUBTOOLS_FONT_BOTTOM` | `""` | Font for bottom (empty = Arial) |
-| `SUBTOOLS_TOP_FONTSIZE` | `18` | Top track font size |
-| `SUBTOOLS_TOP_BOLD` | `false` | Bold top text |
-| `SUBTOOLS_TOP_OUTLINE` | `2.0` | Top outline width |
-| `SUBTOOLS_TOP_SHADOW` | `1.0` | Top shadow depth |
-| `SUBTOOLS_TOP_MARGIN_V` | `15` | Top vertical margin |
-| `SUBTOOLS_TOP_MARGIN_H` | `20` | Top horizontal margin |
-| `SUBTOOLS_TOP_SPACING` | `0.0` | Top character spacing |
-| `SUBTOOLS_FONT_TOP` | `Noto Sans KR` | Font for top (CJK) |
-| `SUBTOOLS_STACKED_GAP` | `8` | Gap between stacked lines |
+| `SUBTOOLS_COLOR_BOTTOM` | `#FFFFFF` | Bottom subtitle text color (hex) |
+| `SUBTOOLS_COLOR_TOP` | `#FFD700` | Top subtitle text color (hex) |
+| `SUBTOOLS_FONTSIZE` | `20` | Font size for both tracks |
+| `SUBTOOLS_LAYOUT` | `top-bottom` | Layout: `top-bottom` (one at top, one at bottom) or `stacked` (both at bottom) |
+| `SUBTOOLS_FONT_BOTTOM` | `""` | Font for bottom track (empty = Arial default) |
+| `SUBTOOLS_FONT_TOP` | `Noto Sans KR` | Font for top track (important for Korean/Chinese/Japanese) |
+| `SUBTOOLS_BOTTOM_OUTLINE` | `2.0` | Bottom text outline width |
+| `SUBTOOLS_TOP_OUTLINE` | `2.0` | Top text outline width |
+| `SUBTOOLS_BOTTOM_MARGIN_V` | `30` | Bottom track vertical margin (pixels from bottom) |
+| `SUBTOOLS_TOP_MARGIN_V` | `15` | Top track vertical margin (pixels from top) |
+| `SUBTOOLS_STACKED_GAP` | `8` | Gap between stacked subtitle lines |
 
 ### Behavior
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SUBTOOLS_MEDIA_ROOT` | `/data` | Media files root directory |
-| `SUBTOOLS_POLL_INTERVAL` | `60` | Background retry interval (seconds) |
-| `SUBTOOLS_RETRY_TIMEOUT_H` | `48` | Abandon pending merges after N hours |
-| `SUBTOOLS_UI_PASSWORD` | `""` | Basic auth password for Web UI (empty = no auth) |
+| `SUBTOOLS_MEDIA_ROOT` | `/data` | Root directory for media files (container path) |
+| `SUBTOOLS_POLL_INTERVAL` | `60` | Seconds between background retry checks for missing subtitles |
+| `SUBTOOLS_RETRY_TIMEOUT_H` | `48` | Abandon pending merges after this many hours |
+| `SUBTOOLS_UI_USER` | `admin` | Username for Web UI basic auth |
+| `SUBTOOLS_UI_PASSWORD` | `""` | Password for Web UI basic auth (empty = no authentication) |
 | `SUBTOOLS_RATE_LIMIT_RPM` | `30` | Max requests per minute per IP (0 = disabled) |
+
+## Bazarr Integration
+
+Configure Bazarr to call Submerge after each subtitle download:
+
+1. In Bazarr: **Settings → Subtitles → Post-Processing**, enable post-processing.
+2. Configure Bazarr to POST to `http://submerge:8282/hook` with form fields:
+   - `video={video}` — path to the video file
+   - `subtitle={subtitle}` — path to the downloaded subtitle
+   - `lang={lang}` — ISO 639-1 language code (e.g. `de`, `ko`, `en`)
+
+Example `curl` equivalent:
+```bash
+curl -X POST "http://submerge:8282/hook" \
+  --data-urlencode "video=/data/media/movie.mkv" \
+  --data-urlencode "subtitle=/data/media/movie.de.srt" \
+  --data-urlencode "lang=de"
+```
+
+If the other language is still missing (e.g. Korean wasn't downloaded yet), Submerge starts background polling and retries automatically.
+
+### Lingarr
+
+Configure Lingarr to call Submerge after each translation completes:
+```
+POST http://submerge:8282/lingarr-hook
+```
+Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`. This triggers a fresh check; if all languages are now present, the merge runs immediately.
 
 ## API Reference
 
 ### Webhooks
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/hook` | POST | Bazarr post-processing webhook |
-| `/lingarr-hook` | POST | Lingarr post-processing webhook |
-| `/health` | GET | Health check |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/hook` | Bazarr post-processing webhook |
+| `POST` | `/lingarr-hook` | Lingarr post-processing webhook |
+| `GET` | `/health` | Health check (ffmpeg, ffprobe, config status) |
 
 ### Media & Merge
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/media` | GET | List all media with subtitle status |
-| `/api/merge` | POST | Manually trigger merge for one video |
-| `/api/sync` | POST | Synchronize a subtitle file |
-| `/scan` | POST | Scan all directories, start missing merges |
-| `/api/polls` | GET | List active background polling jobs |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/media` | List all media with subtitle status (JSON) |
+| `POST` | `/api/merge` | Trigger merge for one video (`{"video_path": "..."}`) |
+| `POST` | `/api/sync` | Synchronize a subtitle file via ffsubsync |
+| `POST` | `/scan` | Scan all directories, start missing merges |
+| `GET` | `/api/polls` | List active background polling jobs |
 
 ### Queue
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/queue` | GET | List all queue entries |
-| `/api/queue/{id}/remove` | POST | Remove a queue entry |
-| `/api/queue/{id}/retry` | POST | Retry a queue entry now |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/queue` | List all pending queue entries |
+| `POST` | `/api/queue/{id}/retry` | Retry a specific queue entry now |
+| `POST` | `/api/queue/{id}/remove` | Remove a queue entry |
 
 ### Style Presets
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/presets` | GET | List all presets |
-| `/api/presets/{name}` | GET | Get preset styles |
-| `/api/presets` | POST | Save custom preset |
-| `/api/presets/{name}` | DELETE | Delete custom preset |
-| `/api/frame-extract` | GET | Extract a video frame (jpg) |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/presets` | List all available presets |
+| `GET` | `/api/presets/{name}` | Get styles for a specific preset |
+| `POST` | `/api/presets` | Save a custom preset |
+| `DELETE` | `/api/presets/{name}` | Delete a custom preset |
+| `GET` | `/api/frame-extract` | Extract a video frame as JPEG (query: `video_path`, `timestamp_s`) |
 
 ### UI & Monitoring
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Web UI Dashboard |
-| `/styles` | GET | Style Editor |
-| `/settings` | GET | Settings page |
-| `/logs/stream` | GET | SSE log stream |
-| `/api/settings` | POST | Update runtime settings |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Web UI Dashboard |
+| `GET` | `/styles` | Style Editor page |
+| `GET` | `/settings` | Settings page |
+| `GET` | `/logs/stream` | SSE live log stream |
+| `POST` | `/api/settings` | Update runtime settings (in-memory, not persisted) |
 
-### Webhook POST Format
+## Web UI
 
-```
-POST /hook
-Content-Type: application/x-www-form-urlencoded
+Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282`:
 
-video=/data/media/movie.mkv&subtitle=/data/media/movie.de.srt&lang=de
-```
-
-Response (200): `{"status": "merged", "files": ["/data/media/movie.de-ko.ass"]}` or `{"status": "polling", "present": ["de"], "missing": ["ko"]}` or `{"status": "skipped", "reason": "..."}`.
+| Page | Description |
+|------|-------------|
+| **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), per-video merge/sync buttons, batch "merge all missing", search/filter, polling status badge |
+| **Settings** (`/settings`) | View and override all `SUBTOOLS_*` environment variables at runtime (in-memory changes only, not persisted across restarts) |
+| **Style Editor** (`/styles`) | Two-tab editor (Bottom/Top) with color pickers, font size, outline/shadow controls, CJK font selector, canvas preview, preset save/load, ASS export button |
 
 ## Development
 
 ```bash
-# Setup
-uv sync --all-extras
+# Install with dev dependencies
+pip install -e ".[dev]"
 
-# Run tests
-uv run pytest
+# Run server with hot-reload
+uvicorn submerge.api:app --reload --port 8282
+
+# Run all tests
+pytest
 
 # Lint
-uv run ruff check src tests
-
-# Run server (dev)
-uv run uvicorn submerge.api:app --reload
+ruff check src tests
 ```
-
-## Troubleshooting
-
-**Bazarr hook not triggering:**
-1. Verify hook script is at `/config/bazarr-hook.sh` inside Bazarr container
-2. Check `curl http://submerge:8282/health` from inside Bazarr container
-3. View logs: `docker logs submerge`
-
-**Merge not happening (languages missing):**
-1. Check queue: `curl http://submerge:8282/api/queue`
-2. Polling delays: Lingarr may take minutes to finish translation
-3. Timeout: entries older than `SUBTOOLS_RETRY_TIMEOUT_H` hours are abandoned
-
-**CJK (Korean/Chinese/Japanese) text not displaying:**
-1. Set `SUBTOOLS_FONT_TOP="Noto Sans KR"` (or appropriate CJK font)
-2. Ensure the font is installed in the container
-3. Check `submerge list-tracks movie.mkv` to verify embedded subtitle format
-
-**"No text subtitle tracks found"** — The video has image-based subtitles (PGS/VOBSUB), which aren't supported.
 
 ## License
 

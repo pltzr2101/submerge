@@ -1,32 +1,37 @@
 services:
   submerge:
-    image: ghcr.io/b4stoss/submerge:latest
-    # Or build locally: build: .
+    image: ghcr.io/pltzr2101/submerge:2.0.3
+    # Alternatively build locally:
+    # build: .
     container_name: submerge
-    environment:
-      # REQUIRED: Language pairs to generate
-      # Format: "lang_bottom-lang_top,..."
-      # Examples:
-      #   "fr-pl,en-pl"     -> generates .fr-pl.ass and .en-pl.ass
-      #   "de-en"           -> generates .de-en.ass
-      #   "ja-en,fr-en"     -> generates .ja-en.ass and .fr-en.ass
-      SUBTOOLS_PAIRS: "fr-pl,en-pl"
-
-      # OPTIONAL: Subtitle appearance
-      SUBTOOLS_COLOR_BOTTOM: "#FFFFFF"   # White (bottom language)
-      SUBTOOLS_COLOR_TOP: "#FFFF00"      # Yellow (top language)
-      SUBTOOLS_FONTSIZE: "18"            # Font size
-
-      # OPTIONAL: Layout
-      # - "top-bottom": one language at top, one at bottom (default)
-      # - "stacked":    both at bottom, one above the other
-      SUBTOOLS_LAYOUT: "top-bottom"
-    volumes:
-      # Must match Bazarr's volume exactly
-      - /path/to/data:/data
-    ports:
-      - 8282:8282
     restart: unless-stopped
-    # Uncomment to join Bazarr's network:
+    ports:
+      - "8282:8282"
+    volumes:
+      # Media directory — must match Sonarr/Radarr/Bazarr mount paths
+      - /path/to/media:/data
+    environment:
+      # Language pairs: bottom-top (comma-separated: de-ko,en-ko)
+      - SUBTOOLS_PAIRS=de-ko
+      # Root directory for media inside the container
+      - SUBTOOLS_MEDIA_ROOT=/data
+      # Polling interval in seconds (how often to check for missing subtitles)
+      - SUBTOOLS_POLL_INTERVAL=60
+      # Font size for bottom (German) subtitles
+      - SUBTOOLS_FONTSIZE=20
+      # Text color for bottom subtitles (hex)
+      - SUBTOOLS_COLOR_BOTTOM=#FFFFFF
+      # Text color for top subtitles (hex)
+      - SUBTOOLS_COLOR_TOP=#FFD700
+      # Layout: top-bottom (one at top, one at bottom) or stacked
+      - SUBTOOLS_LAYOUT=top-bottom
+      # Font for top track (important for Korean/Chinese/Japanese)
+      - SUBTOOLS_FONT_TOP=Noto Sans KR
+      # Web UI authentication (leave empty for no password)
+      - SUBTOOLS_UI_USER=admin
+      - SUBTOOLS_UI_PASSWORD=
+      # Rate limiting (requests/minute per IP, 0 = disabled)
+      - SUBTOOLS_RATE_LIMIT_RPM=30
+    # Uncomment to join existing media network:
     # networks:
     #   - media

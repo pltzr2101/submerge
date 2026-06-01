@@ -1,47 +1,88 @@
-# Submerge v2.0.1 - Bug Fixes
+# Changelog
 
-## Fixes
+All notable changes to this project will be documented in this file.
 
-- **Race condition (Fix 1):** Queue worker now skips videos actively being polled by the
-  in-process polling worker. Polling worker dequeues after successful merge. Clear priority:
-  polling handles active jobs, queue worker only takes what polling isn't handling.
-- **MergeConfig style fields (Fix 2):** `process_bilingual_merge()` now passes all expanded
-  style fields (font_bottom, font_top, bold_bottom, bold_top, outline, outline colors,
-  shadow, margin, spacing, stacked_gap) to MergeConfig instead of only 4 fields.
-- **api_sync path lookup (Fix 3):** Replaced broken `rsplit(".", 1)` video detection with
-  robust `_find_video_for_subtitle()` helper that peels language-code suffixes from the
-  filename stem until a matching video file is found.
-- **Tempfile leak (Fix 4):** `api_frame_extract` now cleans up temp files on HTTPException
-  and generic Exception, not just on the success path.
-- **Scan blocking (Fix 5):** `/scan` now uses FastAPI `BackgroundTasks` so the request
-  thread returns immediately; scan progress is visible via `/logs/stream`.
-- **Version mismatch (Fix 6):** FastAPI app version now reads from `__version__` instead of
-  hardcoded `"1.0.0"`. Removed unused `get_lock_path` import in `api_merge`.
-- **BasicAuth username (Fix 7):** New `SUBTOOLS_UI_USER` env var (default `"admin"`). Both
-  username and password are now validated in BasicAuth.
-- **Path traversal (Fix 8):** `validate_path()` now accepts `check_media_root=True` to
-  enforce that resolved paths are within `SUBTOOLS_MEDIA_ROOT`. Hooks remain unaffected.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Tests
+## [2.0.3] - 2026-06-01
 
-- Added 4 tests (2 for Fix 1, 2 for Fix 2)
-- Total: 98 passing
+### Fixed
 
-## v2.0.0 - Web UI & Production Stack
+- `asyncio.get_event_loop()` replaced with `asyncio.get_running_loop()` in
+  `api_merge` (deprecated in Python 3.10+, DeprecationWarning in 3.12+)
+- `api_queue_retry` converted to `async def` with `run_in_threadpool` to
+  prevent blocking uvicorn worker on large subtitle files
+- `BackgroundTask` lambda closure replaced with direct `Path.unlink` method
+  reference for safer variable binding at construction time
 
-- Web UI Dashboard, Style Editor, Settings, Log Viewer
-- Lingarr webhook, SQLite retry queue, ISO 639 langmap
-- Style presets, frame extraction, Basic Auth, rate limiting
-- Expanded per-language config, full ASS style control
+## [2.0.2] - 2026-06-01
 
-## v1.1.0 - Web UI & Reliable Bazarr Integration
+### Fixed
 
-- Web UI dashboard + settings + log viewer
-- Polling fallback for missing languages
-- Robust 2/3-letter ISO code matching
+- `asyncio.Queue` lazy-initialized via `_get_log_queue()` to avoid creation
+  outside event loop (fatal in Python 3.12+)
+- `FileResponse(background=lambda)` replaced with `BackgroundTask(lambda)`
+  so temporary frame-extract files are actually deleted on download
+- `api_merge` runs `process_bilingual_merge` in `loop.run_in_executor()` to
+  avoid blocking the uvicorn worker during long merge operations
+- `create_app()` no longer raises `RuntimeError` on missing `SUBTOOLS_PAIRS`;
+  server starts gracefully, logs a warning, and `/hook` returns HTTP 503
+- `/health` now includes `configured` boolean and `pairs` list
+- `bottom_color`, `top_color`, `bottom_outline_color`, `top_outline_color`
+  now validated by hex color validator (were previously unvalidated)
+- Removed dead code: `_PRESETS_DIR = Path('/data/style_presets')`
+- `docker-compose.example.yml` updated for `de-ko` with all new env vars
 
-## v1.0.0 - Initial Release
+## [2.0.1] - 2026-06-01
 
-- CLI: merge, sync, extract, list-tracks
-- Bazarr /hook webhook
-- SRT to bilingual ASS
+### Fixed
+
+- **Race condition (queue vs. polling):** Queue worker now skips videos that
+  are actively being polled by the webhook handler, preventing duplicate merges
+- **Style field handling:** Fixed style field mapping so `bottom_color` /
+  `top_color` and other granular style settings are correctly read from
+  environment variables and applied to ASS output
+- **Sync path lookup:** Fixed subtitle file path resolution in sync endpoints
+  to correctly handle files within the media root directory structure
+- **Tempfile leak:** Resolved a bug where temporary files created during the
+  merge process were not always cleaned up on error paths
+- **Scan blocking:** `/scan` endpoint converted to async with background task
+  dispatch so it no longer blocks the request handler for large directories
+- **Missing auth on UI pages:** Basic auth middleware now correctly protects
+  all UI pages including `/styles`
+- **Version reporting:** Fixed `__version__` export and added to `/health`
+- **Config:** `rate_limit_rpm`, `ui_user`, and `ui_password` fields added to
+  settings model with environment variable bindings
+
+## [2.0.0] - 2026-06-01
+
+### Added
+
+- Web-UI (FastAPI + Jinja2): Dashboard, Settings, Style Editor
+- `/api/media` — JSON overview of all videos with subtitle status
+- `/api/merge` — manual merge trigger via HTTP
+- `/api/sync` — subtitle synchronization via ffsubsync
+- `/api/queue` + `/api/queue/{id}/retry` + `/api/queue/{id}/remove`
+- `/scan` — background scan of all media directories
+- `/logs/stream` — SSE live log stream
+- `/lingarr-hook` — separate webhook endpoint for Lingarr
+- SQLite retry queue with background worker for failed merges
+- Polling fallback: automatic retries when subtitles are still missing
+- Style presets (Standard, Cinema Dark, Bright) + persistent custom presets
+- Basic Auth for Web-UI (`SUBTOOLS_UI_USER` / `SUBTOOLS_UI_PASSWORD`)
+- Rate limiting (`SUBTOOLS_RATE_LIMIT_RPM`)
+- `scanner.py` — media directory scanner
+- `queue.py` — SQLite queue worker
+- `langmap.py` — ISO 639-1/2 language code mapping
+
+### Changed
+
+- Version 1.0.0 → 2.0.0
+- FastAPI app uses `lifespan` context manager instead of deprecated `@app.on_event`
+- `/health` response now returns `configured` and `pairs` fields
+
+[2.0.3]: https://github.com/pltzr2101/submerge/compare/v2.0.2...v2.0.3
+[2.0.2]: https://github.com/pltzr2101/submerge/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/pltzr2101/submerge/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/pltzr2101/submerge/releases/tag/v2.0.0

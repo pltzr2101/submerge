@@ -18,6 +18,8 @@ from fastapi import BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -45,8 +47,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("submerge")
 
-# SSE log queue for streaming to UI
-_log_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=200)
+# SSE log queue for streaming to UI - lazy init (Fix 1: avoid asyncio.Queue outside event loop)
+_log_queue: asyncio.Queue[str] | None = None
+
+
+def _get_log_queue() -> asyncio.Queue[str]:
+    """Lazy-initialize the log queue within an active event loop."""
+    global _log_queue
+    if _log_queue is None:
+        _log_queue = asyncio.Queue(maxsize=200)
+    return _log_queue
 
 
 class SSEHandler(logging.Handler):
@@ -57,13 +67,14 @@ class SSEHandler(logging.Handler):
             msg = self.format(record)
             try:
                 loop = asyncio.get_running_loop()
+                q = _get_log_queue()
                 # Drop oldest if full (non-blocking)
-                if _log_queue.full():
+                if q.full():
                     try:
-                        _log_queue.get_nowait()
+                        q.get_nowait()
                     except asyncio.QueueEmpty:
                         pass
-                _log_queue.put_nowait(msg)
+                q.put_nowait(msg)
             except RuntimeError:
                 pass  # No event loop running
         except Exception:
@@ -134,19 +145,17 @@ def _runtime_settings_to_response() -> dict[str, Any]:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    # Validate config at startup (fail fast)
-    settings = get_settings()
-    if not settings.pairs:
-        raise RuntimeError(
-            "SUBTOOLS_PAIRS environment variable is required. "
-            "Example: SUBTOOLS_PAIRS='fr-pl,en-pl'"
-        )
-
     setup_logging_filters()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Startup and shutdown lifecycle."""
+        settings = get_settings()
+        if not settings.pairs:
+            logger.error(
+                "SUBTOOLS_PAIRS is not set! Set it in your docker-compose.yml. "
+                "Example: SUBTOOLS_PAIRS=de-ko"
+            )
         from .queue import init_db, start_queue_worker, stop_queue_worker
         init_db()
         start_queue_worker()
@@ -411,6 +420,13 @@ def lingarr_hook(
 
 def _handle_hook(video: str, subtitle: str, lang: str, source: str) -> dict:
     """Shared hook handler for Bazarr and Lingarr."""
+    settings = _get_effective_settings()
+    if not settings.pairs:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "error", "message": "SUBTOOLS_PAIRS not configured"},
+        )
+
     video_path = validate_path(video, "video")
     subtitle_path = validate_path(subtitle, "subtitle")
 
@@ -463,16 +479,20 @@ def _handle_hook(video: str, subtitle: str, lang: str, source: str) -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    """Health check - verifies that ffmpeg and ffprobe are accessible."""
+    """Health check - verifies ffmpeg/ffprobe and configuration."""
     ffmpeg_available = shutil.which("ffmpeg") is not None
     ffprobe_available = shutil.which("ffprobe") is not None
+    settings = _get_effective_settings()
+    configured = bool(settings.pairs)
 
-    all_ok = ffmpeg_available and ffprobe_available
+    all_ok = ffmpeg_available and ffprobe_available and configured
 
     return {
         "status": "ok" if all_ok else "degraded",
         "ffmpeg": ffmpeg_available,
         "ffprobe": ffprobe_available,
+        "configured": configured,
+        "pairs": [f"{b}-{t}" for b, t in settings.pairs],
     }
 
 
@@ -528,11 +548,15 @@ async def api_merge(request: Request):
         if should_skip_existing(video_path, sub_paths, settings):
             return {"status": "skipped", "reason": "already_exists"}
 
-        # Run merge in thread to not block
+        # Run merge in thread to not block uvicorn worker
         from .hook import _cancel_polling
         _cancel_polling(video_path)
 
-        created_files = process_bilingual_merge(video_path, sub_paths, settings)
+        loop = asyncio.get_running_loop()
+        created_files = await loop.run_in_executor(
+            None,
+            lambda: process_bilingual_merge(video_path, sub_paths, settings),
+        )
         return {
             "status": "merged",
             "files": [str(f) for f in created_files],
@@ -672,9 +696,10 @@ async def logs_stream():
     """SSE endpoint for streaming log messages."""
 
     async def event_generator():
+        q = _get_log_queue()
         while True:
             try:
-                msg = await asyncio.wait_for(_log_queue.get(), timeout=15)
+                msg = await asyncio.wait_for(q.get(), timeout=15)
                 yield f"data: {msg}\n\n"
             except asyncio.TimeoutError:
                 yield ": keepalive\n\n"
@@ -732,7 +757,7 @@ def api_queue_remove(entry_id: int):
 
 
 @app.post("/api/queue/{entry_id}/retry")
-def api_queue_retry(entry_id: int):
+async def api_queue_retry(entry_id: int):
     """Retry a queue entry now."""
     from .queue import _get_connection, dequeue, remove_entry
 
@@ -754,7 +779,9 @@ def api_queue_retry(entry_id: int):
         if should_skip_existing(video_path, sub_paths, settings):
             dequeue(video_path, "done", settings=settings)
             return {"status": "skipped", "reason": "already_exists"}
-        created = process_bilingual_merge(video_path, sub_paths, settings)
+        created = await run_in_threadpool(
+            process_bilingual_merge, video_path, sub_paths, settings
+        )
         dequeue(video_path, "done", settings=settings)
         return {"status": "merged", "files": [str(f) for f in created]}
     finally:
@@ -824,7 +851,6 @@ async def api_settings(request: Request):
 # Style Presets
 # =============================================================================
 
-_PRESETS_DIR = Path("/data/style_presets")
 _DEFAULT_PRESETS = {
     "Standard": {
         "bottom_fontsize": 20, "bottom_color": "#FFFFFF", "bottom_outline_color": "#000000",
@@ -884,12 +910,14 @@ def _save_custom_presets(presets: dict) -> None:
 
 @app.get("/api/presets")
 def api_presets_list():
+    """List all available style presets (built-in + custom)."""
     presets = _load_presets()
     return {"presets": [{"name": k} for k in sorted(presets.keys())]}
 
 
 @app.get("/api/presets/{name}")
 def api_presets_get(name: str):
+    """Get the style fields for a specific preset."""
     presets = _load_presets()
     if name not in presets:
         raise HTTPException(status_code=404, detail={"status": "error", "message": "Preset not found"})
@@ -898,6 +926,7 @@ def api_presets_get(name: str):
 
 @app.post("/api/presets")
 async def api_presets_save(request: Request):
+    """Save a new custom style preset."""
     try:
         body = await request.json()
         name = body.get("name", "").strip()
@@ -918,6 +947,7 @@ async def api_presets_save(request: Request):
 
 @app.delete("/api/presets/{name}")
 def api_presets_delete(name: str):
+    """Delete a custom style preset (built-in presets cannot be deleted)."""
     if name in _DEFAULT_PRESETS:
         raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"})
     presets = _load_presets()
@@ -966,7 +996,11 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
             raise HTTPException(status_code=500, detail={"status": "error", "message": "Frame extraction failed"})
 
         from fastapi.responses import FileResponse
-        return FileResponse(tmp_path, media_type="image/jpeg", background=lambda: Path(tmp_path).unlink(missing_ok=True))
+        return FileResponse(
+            tmp_path,
+            media_type="image/jpeg",
+            background=BackgroundTask(Path(tmp_path).unlink, missing_ok=True),
+        )
 
     except HTTPException:
         if tmp_path:
