@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
 import sys
 import time
@@ -156,7 +157,27 @@ def create_app() -> FastAPI:
         init_db()
         start_queue_worker()
         logger.info("Queue worker started")
+
+        # ---- Auto-merge scheduler ----
+        app_settings = _load_app_settings()
+        if app_settings.get("auto_merge_enabled") and app_settings.get("run_on_startup"):
+            async def _startup_merge():
+                await asyncio.sleep(10)
+                logger.info("Startup auto-merge triggered")
+                try:
+                    s = _get_schedule_merge_settings()
+                    _run_scan(s)
+                except Exception as exc:
+                    logger.error(f"Startup auto-merge failed: {exc}")
+
+            asyncio.create_task(_startup_merge())
+
+        _start_scheduler(settings)
+        # ---------------------------------
+
         yield
+
+        _stop_scheduler()
         stop_queue_worker()
         logger.info("Queue worker stopped")
 
@@ -965,6 +986,113 @@ def _save_app_settings(data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2))
 
 
+# ---------------------------------------------------------------
+# Scheduler for auto-merge jobs
+# ---------------------------------------------------------------
+
+_scheduler: object | None = None
+_SCHEDULE_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+
+
+def _get_schedule_defaults() -> dict[str, Any]:
+    """Build schedule settings dict from app settings with defaults."""
+    app = _load_app_settings()
+    return {
+        "auto_merge_enabled": app.get("auto_merge_enabled", False),
+        "schedule_time": app.get("schedule_time", "03:00"),
+        "run_on_startup": app.get("run_on_startup", False),
+        "schedule_template": app.get("schedule_template", ""),
+    }
+
+
+def _get_schedule_merge_settings() -> SubtoolsSettings:
+    """Build SubtoolsSettings for an auto-merge run using the configured template."""
+    from .config import get_settings_for_test  # noqa: F811
+
+    base = _get_effective_settings()
+    app = _load_app_settings()
+    template = app.get("schedule_template", "") or app.get("default_template", "")
+
+    if template:
+        presets = _load_presets()
+        if template in presets:
+            overrides = dict(presets[template])
+            overrides["pairs_raw"] = base.pairs_raw
+            return get_settings_for_test(**overrides)
+    return base
+
+
+def _start_scheduler(settings: SubtoolsSettings) -> None:
+    """Start the APScheduler with the configured auto-merge schedule.
+
+    If apscheduler is not installed, logs a warning and continues.
+    """
+    global _scheduler
+
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
+        from apscheduler.triggers.cron import CronTrigger
+    except ImportError:
+        logger.warning("apscheduler not installed — auto-merge schedule disabled")
+        return
+
+    app_settings = _load_app_settings()
+    if not app_settings.get("auto_merge_enabled", False):
+        logger.info("Auto-merge schedule is disabled")
+        return
+
+    schedule_time = app_settings.get("schedule_time", "03:00")
+    if not _SCHEDULE_RE.match(schedule_time):
+        logger.error(f"Invalid schedule_time: {schedule_time}")
+        return
+
+    hour, minute = int(schedule_time[:2]), int(schedule_time[3:])
+
+    _scheduler = AsyncIOScheduler()
+    _scheduler.add_job(
+        _execute_scheduled_merge,
+        CronTrigger(hour=hour, minute=minute),
+        id="auto-merge",
+        name="auto-merge",
+        replace_existing=True,
+    )
+    _scheduler.start()
+    logger.info(f"Auto-merge scheduler started — daily at {schedule_time}")
+
+
+def _stop_scheduler() -> None:
+    """Shut down the scheduler."""
+    global _scheduler
+    if _scheduler is not None:
+        try:
+            _scheduler.shutdown(wait=False)
+        except Exception:
+            pass  # Event loop may already be closed
+        _scheduler = None
+        logger.info("Auto-merge scheduler stopped")
+
+
+def _restart_scheduler() -> None:
+    """Stop and restart the scheduler to pick up new settings."""
+    _stop_scheduler()
+    _start_scheduler(_get_effective_settings())
+
+
+async def _execute_scheduled_merge() -> None:
+    """Target for the scheduled auto-merge job."""
+    settings = _get_schedule_merge_settings()
+    template = _load_app_settings().get("schedule_template", "") or "(default)"
+    logger.info(f"Scheduled auto-merge job started (template: {template})")
+    try:
+        result = _run_scan(settings)
+        logger.info(
+            "Scheduled auto-merge complete: %(merged)s merged, %(polling)s polling",
+            result,
+        )
+    except Exception as exc:
+        logger.error(f"Scheduled auto-merge failed: {exc}")
+
+
 @app.get("/api/presets")
 def api_presets_list():
     """List all available style presets (built-in + custom)."""
@@ -1045,6 +1173,70 @@ async def api_set_default_template(request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+
+
+@app.get("/api/settings/schedule")
+def api_get_schedule():
+    """Return current auto-merge schedule settings."""
+    return _get_schedule_defaults()
+
+
+@app.post("/api/settings/schedule")
+async def api_set_schedule(request: Request):
+    """Save auto-merge schedule settings and reconfigure the scheduler.
+
+    Body:
+        auto_merge_enabled (bool)
+        schedule_time (str, HH:MM)
+        run_on_startup (bool)
+        schedule_template (str, preset name or "")
+    """
+    try:
+        body = await request.json()
+        app_settings = _load_app_settings()
+
+        if "auto_merge_enabled" in body:
+            app_settings["auto_merge_enabled"] = bool(body["auto_merge_enabled"])
+
+        if "schedule_time" in body:
+            val = str(body["schedule_time"]).strip()
+            if val and not _SCHEDULE_RE.match(val):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "status": "error",
+                        "message": f"Invalid schedule_time: {val}. Use HH:MM format.",
+                    },
+                )
+            app_settings["schedule_time"] = val or "03:00"
+
+        if "run_on_startup" in body:
+            app_settings["run_on_startup"] = bool(body["run_on_startup"])
+
+        if "schedule_template" in body:
+            val = str(body["schedule_template"]).strip()
+            if val:
+                presets = _load_presets()
+                if val not in presets:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "status": "error",
+                            "message": f"Unknown template: {val}",
+                        },
+                    )
+            app_settings["schedule_template"] = val
+
+        _save_app_settings(app_settings)
+        _restart_scheduler()
+        logger.info("Schedule settings updated")
+        return {"status": "ok", "settings": _get_schedule_defaults()}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Schedule settings error: {e}")
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
 
 

@@ -61,10 +61,47 @@
         <button type="submit" class="btn btn-primary">Save Settings</button>
     </form>
 
-    <div class="settings-info">
-        <h2>Active Polling Jobs</h2>
-        <div id="activePolls">
-            <span class="loading-text">Loading...</span>
+    <div>
+        <div class="settings-info">
+            <h2>Active Polling Jobs</h2>
+            <div id="activePolls">
+                <span class="loading-text">Loading...</span>
+            </div>
+        </div>
+
+        <div class="settings-info schedule-section" style="margin-top:16px">
+            <h2>Auto-Merge Schedule</h2>
+            <form id="scheduleForm">
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="autoMergeEnabled" name="auto_merge_enabled">
+                        Enable daily auto-merge
+                    </label>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="scheduleTime">Run daily at</label>
+                        <input type="time" id="scheduleTime" name="schedule_time" value="03:00" step="60">
+                    </div>
+                    <div class="form-group">
+                        <label for="scheduleTemplate">Template</label>
+                        <select id="scheduleTemplate" name="schedule_template">
+                            <option value="">(Default template)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="runOnStartup" name="run_on_startup">
+                        Run once when container starts
+                    </label>
+                </div>
+
+                <span id="scheduleStatus" class="schedule-hint">Loading...</span>
+                <button type="submit" class="btn btn-primary" style="margin-top:8px">Save Schedule</button>
+            </form>
         </div>
     </div>
 </div>
@@ -90,9 +127,98 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Schedule form ---
+    const enabledCb   = document.getElementById('autoMergeEnabled');
+    const timeInput   = document.getElementById('scheduleTime');
+    const startupCb   = document.getElementById('runOnStartup');
+    const tmplSelect  = document.getElementById('scheduleTemplate');
+    const scheduleForm = document.getElementById('scheduleForm');
+
+    function setDisabledState() {
+        const d = !enabledCb.checked;
+        timeInput.disabled = d;
+        startupCb.disabled = d;
+    }
+    enabledCb.addEventListener('change', setDisabledState);
+
+    scheduleForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = {
+            auto_merge_enabled: enabledCb.checked,
+            schedule_time: timeInput.value,
+            run_on_startup: startupCb.checked,
+            schedule_template: tmplSelect.value,
+        };
+        try {
+            const resp = await fetch('/api/settings/schedule', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data),
+            });
+            const result = await resp.json();
+            if (result.status === 'ok') {
+                updateScheduleStatus(result.settings);
+                scheduleStatus.className = 'schedule-hint schedule-ok';
+                scheduleStatus.textContent = 'Saved ✓';
+                setTimeout(() => updateScheduleStatus(result.settings), 2000);
+            } else {
+                scheduleStatus.className = 'schedule-hint schedule-error';
+                scheduleStatus.textContent = result.message || 'Save failed';
+            }
+        } catch (err) {
+            scheduleStatus.className = 'schedule-hint schedule-error';
+            scheduleStatus.textContent = 'Failed: ' + err.message;
+        }
+    });
+
     loadPolls();
     setInterval(loadPolls, 10000);
+    loadSchedule();
+    loadPresets();
 });
+
+async function loadSchedule() {
+    const statusEl = document.getElementById('scheduleStatus');
+    try {
+        const resp = await fetch('/api/settings/schedule');
+        const s = await resp.json();
+        document.getElementById('autoMergeEnabled').checked = s.auto_merge_enabled;
+        document.getElementById('scheduleTime').value = s.schedule_time;
+        document.getElementById('runOnStartup').checked = s.run_on_startup;
+        document.getElementById('scheduleTemplate').value = s.schedule_template;
+        setDisabledState();
+        updateScheduleStatus(s);
+    } catch (e) {
+        statusEl.className = 'schedule-hint schedule-error';
+        statusEl.textContent = 'Failed to load schedule settings';
+    }
+}
+
+function updateScheduleStatus(s) {
+    const el = document.getElementById('scheduleStatus');
+    el.className = 'schedule-hint';
+    if (!s.auto_merge_enabled) {
+        el.textContent = 'Auto-merge is disabled';
+    } else {
+        el.textContent = 'Next job: daily at ' + s.schedule_time
+            + (s.schedule_template ? '  ·  template: ' + s.schedule_template : '')
+            + (s.run_on_startup ? '  ·  also on startup' : '');
+    }
+}
+
+async function loadPresets() {
+    try {
+        const resp = await fetch('/api/presets');
+        const data = await resp.json();
+        const sel = document.getElementById('scheduleTemplate');
+        data.presets.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.name;
+            sel.appendChild(opt);
+        });
+    } catch (e) { /* ignore */ }
+}
 
 async function loadPolls() {
     try {
@@ -107,6 +233,12 @@ async function loadPolls() {
     } catch (e) {
         document.getElementById('activePolls').innerHTML = '<span class="error-text">Failed to load</span>';
     }
+}
+
+function setDisabledState() {
+    const enabled = document.getElementById('autoMergeEnabled').checked;
+    document.getElementById('scheduleTime').disabled = !enabled;
+    document.getElementById('runOnStartup').disabled = !enabled;
 }
 
 function showSettingsStatus(msg, type) {
