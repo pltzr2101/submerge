@@ -172,7 +172,7 @@ def create_app() -> FastAPI:
 
             asyncio.create_task(_startup_merge())
 
-        _start_scheduler(settings)
+        _start_scheduler(settings, app_settings=app_settings)
         # ---------------------------------
 
         yield
@@ -1022,7 +1022,9 @@ def _get_schedule_merge_settings() -> SubtoolsSettings:
     return base
 
 
-def _start_scheduler(settings: SubtoolsSettings) -> None:
+def _start_scheduler(
+    settings: SubtoolsSettings, app_settings: dict[str, Any] | None = None
+) -> None:
     """Start the APScheduler with the configured auto-merge schedule.
 
     If apscheduler is not installed, logs a warning and continues.
@@ -1036,12 +1038,12 @@ def _start_scheduler(settings: SubtoolsSettings) -> None:
         logger.warning("apscheduler not installed — auto-merge schedule disabled")
         return
 
-    app_settings = _load_app_settings()
-    if not app_settings.get("auto_merge_enabled", False):
+    app = app_settings or _load_app_settings()
+    if not app.get("auto_merge_enabled", False):
         logger.info("Auto-merge schedule is disabled")
         return
 
-    schedule_time = app_settings.get("schedule_time", "03:00")
+    schedule_time = app.get("schedule_time", "03:00")
     if not _SCHEDULE_RE.match(schedule_time):
         logger.error(f"Invalid schedule_time: {schedule_time}")
         return
@@ -1084,10 +1086,11 @@ async def _execute_scheduled_merge() -> None:
     template = _load_app_settings().get("schedule_template", "") or "(default)"
     logger.info(f"Scheduled auto-merge job started (template: {template})")
     try:
-        result = _run_scan(settings)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, _run_scan, settings)
         logger.info(
-            "Scheduled auto-merge complete: %(merged)s merged, %(polling)s polling",
-            result,
+            f"Scheduled auto-merge complete: {result['merged']} merged, "
+            f"{result['polling']} polling"
         )
     except Exception as exc:
         logger.error(f"Scheduled auto-merge failed: {exc}")
