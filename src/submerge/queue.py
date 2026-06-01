@@ -1,0 +1,376 @@
+"""SQLite-based retry queue for pending subtitle merges.
+
+When a webhook fires but not all languages are present, the merge
+is queued. A background worker (driven by FastAPI lifespan) polls
+the queue periodically and attempts to complete pending merges.
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+import threading
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .config import SubtoolsSettings, get_settings
+from .hook import (
+    check_all_languages_present,
+    get_present_and_missing,
+    process_bilingual_merge,
+    should_skip_existing,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class QueueEntry:
+    """A pending merge entry in the queue."""
+
+    video_path: str
+    langs_present: str  # JSON list of present lang codes
+    langs_missing: str  # JSON list of missing lang codes
+    first_seen: str  # ISO datetime
+    last_checked: str  # ISO datetime
+    attempt_count: int
+    status: str  # "pending", "done", "failed"
+
+
+def _get_db_path(settings: SubtoolsSettings | None = None) -> Path:
+    """Get the SQLite database path."""
+    settings = settings or get_settings()
+    data_dir = Path(settings.media_root)
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+    except (PermissionError, OSError):
+        pass  # Will be handled by callers
+    return data_dir / "queue.db"
+
+
+def _get_connection(db_path: Path | None = None, settings: SubtoolsSettings | None = None) -> sqlite3.Connection | None:
+    """Get a connection to the queue database.
+
+    Returns None if the database cannot be opened (e.g., readonly filesystem).
+    """
+    if db_path is None:
+        db_path = _get_db_path(settings)
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
+    except sqlite3.OperationalError as e:
+        logger.warning(f"Queue database unavailable: {e}")
+        return None
+
+
+def init_db(settings: SubtoolsSettings | None = None) -> None:
+    """Initialize the queue database table."""
+    db_path = _get_db_path(settings)
+    conn = _get_connection(db_path)
+    if conn is None:
+        return
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_merges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_path TEXT NOT NULL UNIQUE,
+                langs_present TEXT NOT NULL DEFAULT '[]',
+                langs_missing TEXT NOT NULL DEFAULT '[]',
+                first_seen TEXT NOT NULL,
+                last_checked TEXT NOT NULL,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error_msg TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_status ON pending_merges(status)
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def enqueue(video_path: str | Path, settings: SubtoolsSettings | None = None) -> bool:
+    """Add or update a pending merge entry.
+
+    If the entry already exists, updates last_checked and attempt_count.
+
+    Args:
+        video_path: Path to the video file
+        settings: Configuration
+
+    Returns:
+        True if newly inserted, False if updated
+    """
+    import json
+
+    settings = settings or get_settings()
+    video_path = str(Path(video_path).resolve())
+    video = Path(video_path)
+    now = datetime.now(timezone.utc).isoformat()
+
+    present, missing = get_present_and_missing(video, settings)
+
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return False
+    try:
+        # Check if entry exists
+        existing = conn.execute(
+            "SELECT id, attempt_count FROM pending_merges WHERE video_path = ?",
+            (video_path,),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                """UPDATE pending_merges
+                   SET langs_present = ?, langs_missing = ?,
+                       last_checked = ?, attempt_count = attempt_count + 1
+                   WHERE video_path = ?""",
+                (json.dumps(present), json.dumps(missing), now, video_path),
+            )
+            conn.commit()
+            logger.debug(f"Queue updated: {video.name} (attempt {existing[1] + 1})")
+            return False
+        else:
+            conn.execute(
+                """INSERT INTO pending_merges
+                   (video_path, langs_present, langs_missing, first_seen, last_checked, status)
+                   VALUES (?, ?, ?, ?, ?, 'pending')""",
+                (video_path, json.dumps(present), json.dumps(missing), now, now),
+            )
+            conn.commit()
+            logger.info(f"Queued: {video.name} (present={present}, missing={missing})")
+            return True
+    finally:
+        conn.close()
+
+
+def dequeue(video_path: str | Path, status: str = "done", error_msg: str | None = None, settings: SubtoolsSettings | None = None) -> None:
+    """Mark a queue entry as done or failed.
+
+    Args:
+        video_path: Path to the video file
+        status: "done" or "failed"
+        error_msg: Error message if status is "failed"
+        settings: Configuration for DB path
+    """
+    video_path = str(Path(video_path).resolve())
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return
+    try:
+        conn.execute(
+            "UPDATE pending_merges SET status = ?, error_msg = ? WHERE video_path = ?",
+            (status, error_msg, video_path),
+        )
+        conn.commit()
+        logger.debug(f"Queue entry {status}: {Path(video_path).name}")
+    finally:
+        conn.close()
+
+
+def remove_entry(video_path: str | Path, settings: SubtoolsSettings | None = None) -> None:
+    """Remove a queue entry entirely."""
+    video_path = str(Path(video_path).resolve())
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return
+    try:
+        conn.execute("DELETE FROM pending_merges WHERE video_path = ?", (video_path,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_pending_entries(settings: SubtoolsSettings | None = None) -> list[QueueEntry]:
+    """Get all pending queue entries."""
+    settings = settings or get_settings()
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            """SELECT video_path, langs_present, langs_missing,
+                      first_seen, last_checked, attempt_count, status
+               FROM pending_merges WHERE status = 'pending'
+               ORDER BY first_seen ASC"""
+        ).fetchall()
+        return [
+            QueueEntry(
+                video_path=row[0],
+                langs_present=row[1],
+                langs_missing=row[2],
+                first_seen=row[3],
+                last_checked=row[4],
+                attempt_count=row[5],
+                status=row[6],
+            )
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, Any]]:
+    """Get all queue entries as JSON-serializable dicts."""
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return []
+    try:
+        import json
+
+        rows = conn.execute(
+            """SELECT id, video_path, langs_present, langs_missing,
+                      first_seen, last_checked, attempt_count, status, error_msg
+               FROM pending_merges ORDER BY first_seen DESC LIMIT 500"""
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "video_path": row[1],
+                "video_name": Path(row[1]).name,
+                "langs_present": json.loads(row[2]),
+                "langs_missing": json.loads(row[3]),
+                "first_seen": row[4],
+                "last_checked": row[5],
+                "attempt_count": row[6],
+                "status": row[7],
+                "error_msg": row[8],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def process_queue(settings: SubtoolsSettings | None = None) -> dict[str, int]:
+    """Process all pending queue entries.
+
+    Called by the background worker. Attempts to merge for each
+    pending entry where all languages are now present.
+
+    Args:
+        settings: Configuration
+
+    Returns:
+        Dict with counts: {"checked": N, "merged": N, "failed": N, "still_pending": N}
+    """
+    settings = settings or get_settings()
+    timeout_hours = getattr(settings, "retry_timeout_h", 48)
+    pending = get_pending_entries(settings)
+    if not pending:
+        return {"checked": 0, "merged": 0, "failed": 0, "still_pending": 0}
+
+    checked = 0
+    merged = 0
+    failed = 0
+    still_pending = 0
+
+    for entry in pending:
+        checked += 1
+        video_path = Path(entry.video_path)
+
+        if not video_path.exists():
+            dequeue(video_path, "failed", "Video file no longer exists", settings=settings)
+            failed += 1
+            continue
+
+        # Check timeout
+        try:
+            first_seen = datetime.fromisoformat(entry.first_seen)
+            elapsed = (datetime.now(timezone.utc) - first_seen).total_seconds() / 3600
+            if elapsed > timeout_hours:
+                dequeue(video_path, "failed", f"Timed out after {elapsed:.1f}h", settings=settings)
+                logger.warning(f"Queue entry timed out: {video_path.name} ({elapsed:.1f}h)")
+                failed += 1
+                continue
+        except (ValueError, TypeError):
+            pass
+
+        # Check if all languages are present now
+        sub_paths = check_all_languages_present(video_path, settings)
+        if sub_paths is None:
+            # Update the missing/present info
+            enqueue(video_path, settings)
+            still_pending += 1
+            continue
+
+        # Try merge
+        try:
+            if should_skip_existing(video_path, sub_paths, settings):
+                dequeue(video_path, "done", settings=settings)
+                merged += 1
+                continue
+
+            process_bilingual_merge(video_path, sub_paths, settings)
+            dequeue(video_path, "done", settings=settings)
+            merged += 1
+            logger.info(f"Queue merge complete: {video_path.name}")
+        except Exception as e:
+            logger.error(f"Queue merge error for {video_path.name}: {e}")
+            if entry.attempt_count > 10:
+                dequeue(video_path, "failed", str(e), settings=settings)
+                failed += 1
+            else:
+                enqueue(video_path, settings)
+                still_pending += 1
+
+    return {
+        "checked": checked,
+        "merged": merged,
+        "failed": failed,
+        "still_pending": still_pending,
+    }
+
+
+# Background worker management
+_worker_thread: threading.Thread | None = None
+_worker_stop: threading.Event | None = None
+
+
+def start_queue_worker(settings: SubtoolsSettings | None = None) -> None:
+    """Start the background queue processing worker."""
+    global _worker_thread, _worker_stop
+
+    settings = settings or get_settings()
+    init_db(settings)
+    poll_interval = settings.poll_interval
+
+    if _worker_thread is not None and _worker_thread.is_alive():
+        return
+
+    _worker_stop = threading.Event()
+
+    def _worker():
+        logger.info(f"Queue worker started (interval={poll_interval}s)")
+        while not _worker_stop.wait(timeout=poll_interval):
+            try:
+                result = process_queue(settings)
+                if result["checked"] > 0 or result["merged"] > 0:
+                    logger.info(
+                        f"Queue worker: checked={result['checked']}, "
+                        f"merged={result['merged']}, failed={result['failed']}, "
+                        f"pending={result['still_pending']}"
+                    )
+            except Exception as e:
+                logger.error(f"Queue worker error: {e}")
+        logger.info("Queue worker stopped")
+
+    _worker_thread = threading.Thread(
+        target=_worker, daemon=True, name="submerge-queue-worker"
+    )
+    _worker_thread.start()
+
+
+def stop_queue_worker() -> None:
+    """Stop the background queue worker."""
+    global _worker_stop
+    if _worker_stop is not None:
+        _worker_stop.set()

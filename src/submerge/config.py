@@ -84,6 +84,7 @@ class SubtoolsSettings(BaseSettings):
     # Media scanning
     media_root: str = "/data"
     poll_interval: int = 60
+    retry_timeout_h: int = 48
 
     # Apparence
     color_bottom: str = "#FFFFFF"

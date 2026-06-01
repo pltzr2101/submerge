@@ -9,6 +9,7 @@ import shutil
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from .config import SubtoolsSettings, get_settings
 from .hook import (
     InvalidLanguageError,
     ProcessingError,
+    check_all_languages_present,
     get_active_polls,
     get_output_path,
     process_hook,
@@ -138,10 +140,22 @@ def create_app() -> FastAPI:
 
     setup_logging_filters()
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Startup and shutdown lifecycle."""
+        from .queue import init_db, start_queue_worker, stop_queue_worker
+        init_db()
+        start_queue_worker()
+        logger.info("Queue worker started")
+        yield
+        stop_queue_worker()
+        logger.info("Queue worker stopped")
+
     app = FastAPI(
         title="SubMerge API",
         description="API for automatic bilingual subtitle generation",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     # Mount static files
@@ -522,6 +536,71 @@ async def logs_stream():
 def api_polls():
     """Return list of active polling jobs."""
     return {"polls": get_active_polls()}
+
+
+@app.get("/api/queue")
+def api_queue():
+    """Return all queue entries (pending, done, failed)."""
+    from .queue import get_all_entries
+
+    settings = _get_effective_settings()
+    try:
+        entries = get_all_entries(settings=settings)
+        return JSONResponse({"entries": entries, "count": len(entries)})
+    except Exception as e:
+        logger.error(f"Queue fetch error: {e}")
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+
+
+@app.post("/api/queue/{entry_id}/remove")
+def api_queue_remove(entry_id: int):
+    """Remove a queue entry by ID."""
+    from .queue import _get_connection, remove_entry
+
+    settings = _get_effective_settings()
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        raise HTTPException(status_code=503, detail={"status": "error", "message": "Queue database unavailable"})
+    try:
+        row = conn.execute(
+            "SELECT video_path FROM pending_merges WHERE id = ?", (entry_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail={"status": "error", "message": "Entry not found"})
+        remove_entry(row[0], settings=settings)
+        return {"status": "ok"}
+    finally:
+        conn.close()
+
+
+@app.post("/api/queue/{entry_id}/retry")
+def api_queue_retry(entry_id: int):
+    """Retry a queue entry now."""
+    from .queue import _get_connection, dequeue, remove_entry
+
+    settings = _get_effective_settings()
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        raise HTTPException(status_code=503, detail={"status": "error", "message": "Queue database unavailable"})
+    try:
+        row = conn.execute(
+            "SELECT video_path FROM pending_merges WHERE id = ?", (entry_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail={"status": "error", "message": "Entry not found"})
+        video_path = Path(row[0])
+        sub_paths = check_all_languages_present(video_path, settings)
+        if sub_paths is None:
+            return {"status": "still_waiting", "message": "Not all languages present yet"}
+        from .hook import process_bilingual_merge, should_skip_existing
+        if should_skip_existing(video_path, sub_paths, settings):
+            dequeue(video_path, "done", settings=settings)
+            return {"status": "skipped", "reason": "already_exists"}
+        created = process_bilingual_merge(video_path, sub_paths, settings)
+        dequeue(video_path, "done", settings=settings)
+        return {"status": "merged", "files": [str(f) for f in created]}
+    finally:
+        conn.close()
 
 
 @app.post("/api/settings")

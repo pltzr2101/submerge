@@ -450,6 +450,10 @@ def process_hook(
                 present, missing = get_present_and_missing(video_path, settings)
                 logger.info(f"Missing languages: {missing}")
 
+                # Persist to SQLite queue for background retry
+                from .queue import enqueue
+                enqueue(video_path, settings)
+
                 # Start background polling for missing languages
                 start_polling(video_path, settings)
                 logger.info(
@@ -473,6 +477,10 @@ def process_hook(
 
             # Cancel any active polling since we're merging now
             _cancel_polling(video_path)
+
+            # Mark queue entry as done
+            from .queue import dequeue
+            dequeue(video_path, "done", settings=settings)
 
             # Process (no sync - Bazarr already did it)
             created_files = process_bilingual_merge(video_path, sub_paths, settings)
