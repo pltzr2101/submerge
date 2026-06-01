@@ -1,56 +1,37 @@
 services:
   submerge:
-    image: ghcr.io/b4stoss/submerge:latest
-    # Or build locally: build: .
+    image: ghcr.io/pltzr2101/submerge:2.0.3
+    # Alternatively build locally:
+    # build: .
     container_name: submerge
-    environment:
-      # REQUIRED: Language pairs (bottom-top)
-      SUBTOOLS_PAIRS: "de-ko"
-
-      # Colors (bottom = Deutsch, top = Koreanisch)
-      SUBTOOLS_COLOR_BOTTOM: "#FFFFFF"
-      SUBTOOLS_COLOR_TOP: "#FFD700"
-      SUBTOOLS_FONTSIZE: "18"
-
-      # Fonts (Noto Sans KR für koreanische Zeichen wichtig!)
-      SUBTOOLS_FONT_BOTTOM: ""
-      SUBTOOLS_FONT_TOP: "Noto Sans KR"
-
-      # Layout: "top-bottom" oder "stacked"
-      SUBTOOLS_LAYOUT: "top-bottom"
-
-      # Medienpfad (muss mit Bazarr/Sonarr/Radarr Volume übereinstimmen)
-      SUBTOOLS_MEDIA_ROOT: "/data"
-
-      # Polling wenn Subtitles noch fehlen (Sekunden, max 30 Versuche)
-      SUBTOOLS_POLL_INTERVAL: "60"
-
-      # SQLite Retry-Queue Timeout in Stunden
-      SUBTOOLS_RETRY_TIMEOUT_H: "48"
-
-      # Web UI Authentifizierung (leer = kein Login nötig)
-      SUBTOOLS_UI_USER: "admin"
-      SUBTOOLS_UI_PASSWORD: ""
-
-      # Rate Limiting pro IP (Requests/Minute, 0 = deaktiviert)
-      SUBTOOLS_RATE_LIMIT_RPM: "30"
-
-    volumes:
-      # Muss exakt mit dem Pfad in Bazarr/Sonarr/Radarr übereinstimmen
-      - /path/to/media:/data
-
-    ports:
-      # Web UI: http://<server-ip>:8282
-      # API: http://<server-ip>:8282/hook (Bazarr Webhook)
-      #       http://<server-ip>:8282/lingarr-hook (Lingarr Webhook)
-      - "8282:8282"
-
     restart: unless-stopped
-
-    # Uncomment wenn im selben Docker-Netzwerk wie Bazarr/Sonarr/Radarr:
+    ports:
+      - "8282:8282"
+    volumes:
+      # Media directory — must match Sonarr/Radarr/Bazarr mount paths
+      - /path/to/media:/data
+    environment:
+      # Language pairs: bottom-top (comma-separated: de-ko,en-ko)
+      - SUBTOOLS_PAIRS=de-ko
+      # Root directory for media inside the container
+      - SUBTOOLS_MEDIA_ROOT=/data
+      # Polling interval in seconds (how often to check for missing subtitles)
+      - SUBTOOLS_POLL_INTERVAL=60
+      # Font size for bottom (German) subtitles
+      - SUBTOOLS_FONTSIZE=20
+      # Text color for bottom subtitles (hex)
+      - SUBTOOLS_COLOR_BOTTOM=#FFFFFF
+      # Text color for top subtitles (hex)
+      - SUBTOOLS_COLOR_TOP=#FFD700
+      # Layout: top-bottom (one at top, one at bottom) or stacked
+      - SUBTOOLS_LAYOUT=top-bottom
+      # Font for top track (important for Korean/Chinese/Japanese)
+      - SUBTOOLS_FONT_TOP=Noto Sans KR
+      # Web UI authentication (leave empty for no password)
+      - SUBTOOLS_UI_USER=admin
+      - SUBTOOLS_UI_PASSWORD=
+      # Rate limiting (requests/minute per IP, 0 = disabled)
+      - SUBTOOLS_RATE_LIMIT_RPM=30
+    # Uncomment to join existing media network:
     # networks:
     #   - media
-
-# networks:
-#   media:
-#     external: true

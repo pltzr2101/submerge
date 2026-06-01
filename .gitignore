@@ -16,6 +16,11 @@ venv/
 env/
 ENV/
 
+# Environment files
+.env
+.env.*
+!.env.example
+
 # Testing
 .pytest_cache/
 
@@ -25,6 +30,11 @@ ENV/
 htmlcov/
 .tox/
 .nox/
+
+# SQLite databases
+*.db
+*.sqlite
+style_presets.json
 
 # IDE / Editors
 .vscode/
@@ -40,11 +50,14 @@ Thumbs.db
 # Logs
 *.log
 
-# Temporary subtitle files (working files)
+# Temporary subtitle files
 *.temp.srt
 *.temp.ass
 
-# BMAD
+# Data mounts
+/data/
+
+# AI tooling
 _bmad
 _bmad-output
 
@@ -52,4 +65,5 @@ _bmad-output
 .claude
 CLAUDE.MD
 
+# Demo
 demo/

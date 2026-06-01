@@ -910,12 +910,14 @@ def _save_custom_presets(presets: dict) -> None:
 
 @app.get("/api/presets")
 def api_presets_list():
+    """List all available style presets (built-in + custom)."""
     presets = _load_presets()
     return {"presets": [{"name": k} for k in sorted(presets.keys())]}
 
 
 @app.get("/api/presets/{name}")
 def api_presets_get(name: str):
+    """Get the style fields for a specific preset."""
     presets = _load_presets()
     if name not in presets:
         raise HTTPException(status_code=404, detail={"status": "error", "message": "Preset not found"})
@@ -924,6 +926,7 @@ def api_presets_get(name: str):
 
 @app.post("/api/presets")
 async def api_presets_save(request: Request):
+    """Save a new custom style preset."""
     try:
         body = await request.json()
         name = body.get("name", "").strip()
@@ -944,6 +947,7 @@ async def api_presets_save(request: Request):
 
 @app.delete("/api/presets/{name}")
 def api_presets_delete(name: str):
+    """Delete a custom style preset (built-in presets cannot be deleted)."""
     if name in _DEFAULT_PRESETS:
         raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"})
     presets = _load_presets()
