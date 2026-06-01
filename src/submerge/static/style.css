@@ -306,3 +306,83 @@ legend {
 
 .loading-text, .empty-text { color: var(--text-muted); font-size: 0.85rem; }
 .error-text { color: var(--error); font-size: 0.85rem; }
+.text-muted { color: var(--text-muted); font-size: 0.85rem; }
+
+/* Modal */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+}
+.modal-overlay.hidden { display: none; }
+
+.modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 90%; max-width: 500px;
+    max-height: 80vh;
+    display: flex; flex-direction: column;
+}
+.modal-sm { max-width: 400px; }
+
+.modal-header {
+    display: flex; align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 1.05rem; font-weight: 600; }
+.modal-close {
+    background: none; border: none;
+    color: var(--text-muted); font-size: 1.4rem;
+    cursor: pointer; padding: 0; line-height: 1;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+.modal-footer {
+    display: flex; gap: 8px; justify-content: flex-end;
+    padding: 12px 20px; border-top: 1px solid var(--border);
+}
+
+/* Template List in Modal */
+.template-list { display: flex; flex-direction: column; gap: 4px; }
+.template-option {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: var(--radius);
+    cursor: pointer; font-size: 0.9rem;
+    border: 1px solid transparent;
+}
+.template-option:hover { background: rgba(255,255,255,0.04); }
+.template-option input[type="radio"] { accent-color: var(--accent); }
+.default-badge { color: var(--accent); font-weight: bold; margin-left: 4px; }
+
+/* Danger button */
+.btn-danger { background: var(--error); border-color: var(--error); color: #fff; }
+.btn-danger:hover { background: #c0392b; }
+
+/* Accent button (for Re-merge) */
+.btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-accent:hover { background: var(--accent-hover); }
+
+/* Preset Manager */
+.preset-manager {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 24px;
+}
+.preset-manager h3 { font-size: 1rem; margin-bottom: 12px; }
+.preset-list { display: flex; flex-direction: column; gap: 4px; }
+.preset-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px; border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+.preset-row:hover { background: rgba(255,255,255,0.02); }
+.preset-name { font-size: 0.9rem; }
+.preset-default-btn {
+    opacity: 0.6; cursor: default;
+}
+

@@ -39,6 +39,42 @@
     </tbody>
 </table>
 
+<!-- Template Picker Modal -->
+<div id="templateModal" class="modal-overlay hidden">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="modalTitle">Select Style Template</h3>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="modalMsg" class="hidden"></p>
+            <div id="templateList" class="template-list">Loading templates...</div>
+        </div>
+        <div class="modal-footer">
+            <button id="btnModalConfirm" class="btn btn-success">Merge</button>
+            <button class="btn" onclick="closeModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteModal" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+        <div class="modal-header">
+            <h3>Delete Merged Subtitle</h3>
+            <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Delete the merged subtitle file?</p>
+            <p class="text-muted">Only the .ass merge file will be removed. Original .srt files are untouched.</p>
+        </div>
+        <div class="modal-footer">
+            <button id="btnDeleteConfirm" class="btn btn-danger">Delete</button>
+            <button class="btn" onclick="closeDeleteModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <div class="log-section">
     <h2>Recent Activity</h2>
     <div id="logViewer" class="log-viewer">
@@ -53,6 +89,12 @@ const PAIRS = {{ pairs | tojson }};
 const LANGS = {{ langs | tojson }};
 let allEntries = [];
 let currentFilter = 'needs-merge';
+let pendingMergeVideo = null;
+let pendingMergeOverwrite = false;
+let pendingDeleteVideo = null;
+let selectedTemplate = '';
+let defaultTemplate = '';
+let templates = [];
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filterSelect').addEventListener('change', (e) => {
@@ -60,10 +102,47 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTable();
     });
     document.getElementById('btnScan').addEventListener('click', doScan);
-    document.getElementById('btnBatchMerge').addEventListener('click', doBatchMerge);
+    document.getElementById('btnBatchMerge').addEventListener('click', showBatchMergeModal);
+    document.getElementById('btnModalConfirm').addEventListener('click', executeMerge);
+    document.getElementById('btnDeleteConfirm').addEventListener('click', executeDelete);
+
+    // Close modal on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeModal();
+            closeDeleteModal();
+        }
+    });
+
+    // Close modal on overlay click
+    document.getElementById('templateModal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeModal();
+    });
+    document.getElementById('deleteModal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeDeleteModal();
+    });
+
     loadMedia();
+    loadTemplates();
+    loadDefaultTemplate();
     connectLogStream();
 });
+
+async function loadTemplates() {
+    try {
+        const resp = await fetch('/api/presets');
+        const data = await resp.json();
+        templates = data.presets || [];
+    } catch (e) { /* ignore */ }
+}
+
+async function loadDefaultTemplate() {
+    try {
+        const resp = await fetch('/api/settings/default-template');
+        const data = await resp.json();
+        defaultTemplate = data.default_template || '';
+    } catch (e) { /* ignore */ }
+}
 
 async function loadMedia() {
     showLoading(true);
@@ -104,11 +183,15 @@ function renderTable() {
     tbody.innerHTML = filtered.map(entry => {
         const cls = getRowClass(entry);
         let actions = '';
-        if (entry.all_langs_present && !entry.all_merged) {
-            actions += `<button class="btn btn-sm btn-success" onclick="doMerge('${escAttr(entry.video_path)}')">Merge</button> `;
-        }
-        if (entry.all_merged) {
-            actions += `<span class="badge badge-ok">Done</span> `;
+
+        // Merge or Re-merge button
+        if (entry.all_langs_present) {
+            if (!entry.all_merged) {
+                actions += `<button class="btn btn-sm btn-success" onclick="showMergeModal('${escAttr(entry.video_path)}', false)">Merge</button> `;
+            } else {
+                actions += `<button class="btn btn-sm btn-accent" onclick="showMergeModal('${escAttr(entry.video_path)}', true)">Re-merge</button> `;
+                actions += `<button class="btn btn-sm btn-danger" onclick="showDeleteModal('${escAttr(entry.video_path)}')">🗑</button> `;
+            }
         }
         // Sync buttons
         for (const lang of LANGS) {
@@ -141,13 +224,109 @@ function renderTable() {
     }).join('');
 }
 
-async function doMerge(videoPath) {
-    showStatus('Merging...', 'info');
+// === Modal handling ===
+
+function showMergeModal(videoPath, overwrite) {
+    pendingMergeVideo = videoPath;
+    pendingMergeOverwrite = overwrite;
+    document.getElementById('modalTitle').textContent = overwrite ? 'Re-merge Subtitle' : 'Merge Subtitle';
+    document.getElementById('modalMsg').classList.add('hidden');
+
+    const list = document.getElementById('templateList');
+    list.innerHTML = templates.map(t => {
+        const isDefault = t.name === defaultTemplate;
+        const checked = (isDefault && !selectedTemplate) || t.name === selectedTemplate
+            ? 'checked' : '';
+        const star = isDefault ? ' <span class="default-badge">★</span>' : '';
+        return `<label class="template-option">
+            <input type="radio" name="tmpl" value="${escAttr(t.name)}" ${checked}
+                   onchange="selectedTemplate = '${escAttr(t.name)}'">
+            ${escHtml(t.name)}${star}
+        </label>`;
+    }).join('');
+    if (templates.length === 0) {
+        list.innerHTML = '<p class="text-muted">No templates configured. Using global settings.</p>';
+    }
+
+    document.getElementById('templateModal').classList.remove('hidden');
+}
+
+function showBatchMergeModal() {
+    const needsMerge = allEntries.filter(e => e.all_langs_present && !e.all_merged).length;
+    if (needsMerge === 0) {
+        showStatus('No videos need merging.', 'warning');
+        return;
+    }
+    pendingMergeVideo = '_BATCH_';
+    pendingMergeOverwrite = false;
+    document.getElementById('modalTitle').textContent = 'Batch Merge';
+    const msg = document.getElementById('modalMsg');
+    msg.textContent = `This template will be applied to all ${needsMerge} outstanding merge(s).`;
+    msg.classList.remove('hidden');
+
+    const list = document.getElementById('templateList');
+    list.innerHTML = templates.map(t => {
+        const isDefault = t.name === defaultTemplate;
+        const checked = (isDefault && !selectedTemplate) || t.name === selectedTemplate
+            ? 'checked' : '';
+        const star = isDefault ? ' <span class="default-badge">★</span>' : '';
+        return `<label class="template-option">
+            <input type="radio" name="tmpl" value="${escAttr(t.name)}" ${checked}
+                   onchange="selectedTemplate = '${escAttr(t.name)}'">
+            ${escHtml(t.name)}${star}
+        </label>`;
+    }).join('');
+    if (templates.length === 0) {
+        list.innerHTML = '<p class="text-muted">No templates configured. Using global settings.</p>';
+    }
+
+    document.getElementById('templateModal').classList.remove('hidden');
+}
+
+function closeModal() {
+    document.getElementById('templateModal').classList.add('hidden');
+}
+
+function showDeleteModal(videoPath) {
+    pendingDeleteVideo = videoPath;
+    document.getElementById('deleteModal').classList.remove('hidden');
+}
+
+function closeDeleteModal() {
+    document.getElementById('deleteModal').classList.add('hidden');
+    pendingDeleteVideo = null;
+}
+
+// === Action execution ===
+
+async function executeMerge() {
+    closeModal();
+    const videoPath = pendingMergeVideo;
+    const overwrite = pendingMergeOverwrite;
+    if (!videoPath) return;
+
+    if (videoPath === '_BATCH_') {
+        // Batch merge: /scan already handles everything
+        showStatus('Batch merging...', 'info');
+        try {
+            const resp = await fetch('/scan', {method: 'POST'});
+            const data = await resp.json();
+            showStatus(`Batch complete: ${data.merged || 0} merged, ${data.polling || 0} polling`, 'success');
+        } catch (e) {
+            showStatus('Batch merge failed: ' + e.message, 'error');
+        }
+        setTimeout(loadMedia, 3000);
+        return;
+    }
+
+    showStatus(overwrite ? 'Re-merging...' : 'Merging...', 'info');
     try {
+        const body = {video_path: videoPath, overwrite: overwrite};
+        if (selectedTemplate) body.template = selectedTemplate;
         const resp = await fetch('/api/merge', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({video_path: videoPath}),
+            body: JSON.stringify(body),
         });
         const data = await resp.json();
         if (data.status === 'merged') {
@@ -155,10 +334,34 @@ async function doMerge(videoPath) {
         } else if (data.status === 'polling') {
             showStatus('Polling started for missing languages', 'info');
         } else {
-            showStatus('Merge status: ' + data.status + (data.reason ? ' - ' + data.reason : ''), 'warning');
+            showStatus('Merge: ' + data.status + (data.reason ? ' - ' + data.reason : ''), 'warning');
         }
     } catch (e) {
         showStatus('Merge failed: ' + e.message, 'error');
+    }
+    setTimeout(loadMedia, 2000);
+}
+
+async function executeDelete() {
+    const videoPath = pendingDeleteVideo;
+    closeDeleteModal();
+    if (!videoPath) return;
+
+    showStatus('Deleting merged subtitle...', 'info');
+    try {
+        const resp = await fetch('/api/media/merged', {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({video_path: videoPath}),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            showStatus('Deleted: ' + (data.deleted.length > 0 ? data.deleted.map(p => p.split('/').pop()).join(', ') : 'nothing to delete'), 'success');
+        } else {
+            showStatus(data.message || 'Delete failed', 'warning');
+        }
+    } catch (e) {
+        showStatus('Delete failed: ' + e.message, 'error');
     }
     setTimeout(loadMedia, 2000);
 }
@@ -195,22 +398,11 @@ async function doScan() {
     loadMedia();
 }
 
-async function doBatchMerge() {
-    showStatus('Batch merging...', 'info');
-    try {
-        const resp = await fetch('/scan', {method: 'POST'});
-        const data = await resp.json();
-        showStatus(`Batch complete: ${data.scanned || 0} scanned, ${data.merged || 0} merged, ${data.polling || 0} polling`, 'success');
-    } catch (e) {
-        showStatus('Batch merge failed: ' + e.message, 'error');
-    }
-    setTimeout(loadMedia, 3000);
-}
-
 function showStatus(msg, type) {
     const el = document.getElementById('statusMsg');
     el.textContent = msg;
     el.className = 'status-msg status-' + type;
+    el.classList.remove('hidden');
     setTimeout(() => el.classList.add('hidden'), 5000);
 }
 

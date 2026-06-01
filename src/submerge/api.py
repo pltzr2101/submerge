@@ -361,12 +361,15 @@ async def ui_styles(request: Request):
     pairs = settings.pairs
     lang_bottom = pairs[0][0] if pairs else "de"
     lang_top = pairs[0][1] if pairs else "ko"
+    app_settings = _load_app_settings()
+    default_template = app_settings.get("default_template", "")
     return templates.TemplateResponse(
         request,
         "styles.html",
         {
             "lang_bottom": lang_bottom,
             "lang_top": lang_top,
+            "default_template": default_template,
             "config": {
             "bottom_fontsize": settings.bottom_fontsize,
             "bottom_color": settings.bottom_color,
@@ -522,7 +525,13 @@ def api_media():
 
 @app.post("/api/merge")
 async def api_merge(request: Request):
-    """Trigger a merge for a single video."""
+    """Trigger a merge for a single video.
+
+    Optional JSON fields:
+        video_path (required): Path to the video file
+        template (optional): Name of a style preset to use
+        overwrite (optional): If true, skip the "already_exists" check
+    """
     try:
         body = await request.json()
         video_path_str = body.get("video_path", "")
@@ -530,26 +539,37 @@ async def api_merge(request: Request):
             raise HTTPException(status_code=400, detail={"status": "error", "message": "video_path required"})  # noqa: E501
 
         video_path = validate_path(video_path_str, "video_path")
+        overwrite = body.get("overwrite", False)
+        template_name = body.get("template", "").strip()
+
         settings = _get_effective_settings()
+        # Apply template styles if specified
+        merge_settings = settings
+        if template_name:
+            presets = _load_presets()
+            if template_name in presets:
+                from .config import get_settings_for_test
+                overrides = presets[template_name]
+                overrides["pairs_raw"] = settings.pairs_raw
+                merge_settings = get_settings_for_test(**overrides)
 
         # Find subtitle paths for all required languages
         from .hook import check_all_languages_present, process_bilingual_merge, should_skip_existing
 
-        sub_paths = check_all_languages_present(video_path, settings)
+        sub_paths = check_all_languages_present(video_path, merge_settings)
         if sub_paths is None:
-            # Start polling
             from .hook import get_present_and_missing
-            present, missing = get_present_and_missing(video_path, settings)
-            start_polling(video_path, settings)
+            present, missing = get_present_and_missing(video_path, merge_settings)
+            start_polling(video_path, merge_settings)
             return {
                 "status": "polling",
                 "present": present,
                 "missing": missing,
-                "reason": f"Polling every {settings.poll_interval}s",
+                "reason": f"Polling every {merge_settings.poll_interval}s",
             }
 
-        # Check skip
-        if should_skip_existing(video_path, sub_paths, settings):
+        # Check skip (unless force overwrite)
+        if not overwrite and should_skip_existing(video_path, sub_paths, merge_settings):
             return {"status": "skipped", "reason": "already_exists"}
 
         # Run merge in thread to not block uvicorn worker
@@ -559,10 +579,11 @@ async def api_merge(request: Request):
         loop = asyncio.get_running_loop()
         created_files = await loop.run_in_executor(
             None,
-            lambda: process_bilingual_merge(video_path, sub_paths, settings),
+            lambda: process_bilingual_merge(video_path, sub_paths, merge_settings),
         )
         return {
             "status": "merged",
+            "overwrite": overwrite,
             "files": [str(f) for f in created_files],
         }
 
@@ -915,6 +936,35 @@ def _save_custom_presets(presets: dict) -> None:
     path.write_text(json.dumps(custom, indent=2))
 
 
+def _get_config_dir() -> Path:
+    """Return the config directory for submerge (media_root)."""
+    settings = _get_effective_settings()
+    return Path(settings.media_root)
+
+
+def _get_settings_path() -> Path:
+    """Path to settings.json in the config directory."""
+    return _get_config_dir() / "settings.json"
+
+
+def _load_app_settings() -> dict[str, Any]:
+    """Load application settings from settings.json."""
+    path = _get_settings_path()
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_app_settings(data: dict[str, Any]) -> None:
+    """Save application settings to settings.json."""
+    path = _get_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2))
+
+
 @app.get("/api/presets")
 def api_presets_list():
     """List all available style presets (built-in + custom)."""
@@ -963,6 +1013,76 @@ def api_presets_delete(name: str):
     del presets[name]
     _save_custom_presets(presets)
     return {"status": "ok"}
+
+
+@app.get("/api/settings/default-template")
+def api_get_default_template():
+    """Get the current default style template name."""
+    app_settings = _load_app_settings()
+    return {"default_template": app_settings.get("default_template", "")}
+
+
+@app.post("/api/settings/default-template")
+async def api_set_default_template(request: Request):
+    """Set the default style template name."""
+    try:
+        body = await request.json()
+        name = body.get("template", "").strip()
+        if name:
+            presets = _load_presets()
+            if name not in presets:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"status": "error", "message": f"Unknown template: {name}"},
+                )
+        app_settings = _load_app_settings()
+        if name:
+            app_settings["default_template"] = name
+        elif "default_template" in app_settings:
+            del app_settings["default_template"]
+        _save_app_settings(app_settings)
+        return {"status": "ok", "default_template": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+
+
+@app.delete("/api/media/merged")
+async def api_delete_merged(request: Request):
+    """Delete merged subtitle (.ass) files for a video. Only removes the merged file,
+    never touches the original .srt source files."""
+    try:
+        body = await request.json()
+        video_path_str = body.get("video_path", "")
+        if not video_path_str:
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "video_path required"},
+            )
+
+        video_path = validate_path(video_path_str, "video_path", check_media_root=True)
+        settings = _get_effective_settings()
+
+        deleted = []
+        for lang_bottom, lang_top in settings.pairs:
+            pair_key = f"{lang_bottom}-{lang_top}"
+            merged_file = video_path.parent / f"{video_path.stem}.{pair_key}.ass"
+            if merged_file.exists():
+                merged_file.unlink()
+                deleted.append(str(merged_file))
+                logger.info(f"Deleted merged subtitle: {merged_file}")
+
+        if not deleted:
+            return {"status": "ok", "message": "No merged files found to delete", "deleted": []}
+
+        return {"status": "ok", "deleted": deleted}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Delete merged error: {e}")
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
 
 
 # =============================================================================

@@ -14,6 +14,13 @@
     </div>
 </div>
 
+<div class="preset-manager">
+    <h3>Style Templates</h3>
+    <div id="presetList" class="preset-list">
+        <p class="loading-text">Loading templates...</p>
+    </div>
+</div>
+
 <div class="style-editor-layout">
     <div class="style-panel">
         <div class="tabs">
@@ -88,6 +95,7 @@ const langBottom = '{{ lang_bottom }}';
 const langTop = '{{ lang_top }}';
 let currentTab = 'bottom';
 let currentBgImage = null;
+let defaultTemplate = '{{ default_template }}';
 
 const state = {
     bottom_fontsize: config.bottom_fontsize || 20,
@@ -418,6 +426,7 @@ async function loadPresets() {
             opt.textContent = p.name;
             sel.appendChild(opt);
         });
+        renderPresetList(data.presets);
     } catch(e) {}
 }
 
@@ -442,6 +451,43 @@ async function savePreset(name) {
         });
         alert('Preset saved!');
         location.reload();
+    } catch(e) { alert('Failed: ' + e.message); }
+}
+
+function renderPresetList(presets) {
+    const list = document.getElementById('presetList');
+    if (!presets || presets.length === 0) {
+        list.innerHTML = '<p class="empty-text">No templates yet.</p>';
+        return;
+    }
+    list.innerHTML = presets.map(p => {
+        const isDefault = p.name === defaultTemplate;
+        const star = isDefault ? ' ★' : '';
+        const btnLabel = isDefault ? 'Default' : 'Set as default';
+        const btnClass = isDefault ? 'btn btn-sm preset-default-btn' : 'btn btn-sm';
+        const disabled = isDefault ? 'disabled' : '';
+        return `<div class="preset-row">
+            <span class="preset-name">${escHtml(p.name)}${star}</span>
+            <button class="${btnClass}" ${disabled} onclick="setDefaultTemplate('${escHtml(p.name)}')">${btnLabel}</button>
+        </div>`;
+    }).join('');
+}
+
+async function setDefaultTemplate(name) {
+    try {
+        const resp = await fetch('/api/settings/default-template', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({template: name}),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            defaultTemplate = name;
+            // Re-render to update badges
+            const sel = document.getElementById('presetSelect');
+            const presets = Array.from(sel.options).filter(o => o.value).map(o => ({name: o.value}));
+            renderPresetList(presets);
+        }
     } catch(e) { alert('Failed: ' + e.message); }
 }
 
