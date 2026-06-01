@@ -241,6 +241,9 @@ def _polling_worker(
                     f"Polling merge complete for {video_path.name}: "
                     f"{[f.name for f in created_files]}"
                 )
+                # Mark queue entry as done
+                from .queue import dequeue as queue_dequeue
+                queue_dequeue(video_path, "done", settings=settings)
                 return
 
             present, missing = get_present_and_missing(video_path, settings)
@@ -378,6 +381,23 @@ def process_bilingual_merge(
         color_bottom=settings.color_bottom,
         color_top=settings.color_top,
         fontsize=settings.fontsize,
+        font_bottom=getattr(settings, "font_bottom", ""),
+        font_top=getattr(settings, "font_top", "Noto Sans KR"),
+        bold_bottom=getattr(settings, "bottom_bold", False),
+        bold_top=getattr(settings, "top_bold", False),
+        outline=getattr(settings, "bottom_outline", 2.0),
+        outline_color_bottom=getattr(settings, "bottom_outline_color", "#000000"),
+        outline_color_top=getattr(settings, "top_outline_color", "#000000"),
+        shadow=getattr(settings, "bottom_shadow", 1.0),
+        shadow_bottom=getattr(settings, "bottom_shadow", 1.0),
+        shadow_top=getattr(settings, "top_shadow", 1.0),
+        margin_v_bottom=getattr(settings, "bottom_margin_v", 30),
+        margin_v_top=getattr(settings, "top_margin_v", 15),
+        margin_h_bottom=getattr(settings, "bottom_margin_h", 20),
+        margin_h_top=getattr(settings, "top_margin_h", 20),
+        spacing_bottom=getattr(settings, "bottom_spacing", 0.0),
+        spacing_top=getattr(settings, "top_spacing", 0.0),
+        stacked_gap=getattr(settings, "stacked_gap", 8),
         layout=settings.layout,
     )
 
@@ -504,3 +524,8 @@ def process_hook(
 def get_active_polls() -> list[str]:
     """Return list of video paths currently being polled."""
     return list(_polling_jobs.keys())
+
+
+def get_polling_jobs() -> dict[str, threading.Event]:
+    """Return the polling jobs dict for testing."""
+    return _polling_jobs

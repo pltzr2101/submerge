@@ -302,6 +302,12 @@ def process_queue(settings: SubtoolsSettings | None = None) -> dict[str, int]:
             still_pending += 1
             continue
 
+        # Skip if polling worker is already handling this video
+        from .hook import get_active_polls
+        if str(video_path.resolve()) in get_active_polls():
+            still_pending += 1
+            continue
+
         # Try merge
         try:
             if should_skip_existing(video_path, sub_paths, settings):
