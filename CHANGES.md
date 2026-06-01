@@ -1,3 +1,30 @@
+# Submerge v2.0.2 - Ship-Ready Fixes
+
+## Fixes
+
+- **asyncio.Queue outside event loop (Fix 1, CRITICAL):** `_log_queue` is now lazy-initialized
+  via `_get_log_queue()` to avoid creating `asyncio.Queue` at module import time (fails on
+  Python 3.12+).
+- **FileResponse background leak (Fix 2, CRITICAL):** `api_frame_extract` now wraps the
+  cleanup lambda in `starlette.background.BackgroundTask` so temp files are actually deleted.
+- **api_merge blocks uvicorn (Fix 3, CRITICAL):** `process_bilingual_merge` now runs in a
+  thread via `loop.run_in_executor()` to avoid blocking the uvicorn worker during long merges.
+- **RuntimeError on empty SUBTOOLS_PAIRS (Fix 4, CRITICAL):** Removed `create_app()` crash.
+  Server starts gracefully, logs a warning, and `/hook` returns HTTP 503 with a readable
+  message. `/health` includes `configured` and `pairs` fields.
+- **Unvalidated color fields (Fix 5, MEDIUM):** `bottom_color`, `top_color`,
+  `bottom_outline_color`, `top_outline_color` now all pass through the hex color validator.
+- **Dead code (Fix 6, MEDIUM):** Removed unused `_PRESETS_DIR = Path("/data/style_presets")`.
+- **docker-compose.example.yml (Fix 8, MEDIUM):** Updated for `de-ko` with all new
+  env vars (`SUBTOOLS_UI_USER`, `SUBTOOLS_FONT_*`, `SUBTOOLS_RETRY_TIMEOUT_H`, etc.).
+
+## Tests
+
+- Updated `test_missing_pairs` → tests graceful startup + 503 response
+- Total: 98 passing
+
+---
+
 # Submerge v2.0.1 - Bug Fixes
 
 ## Fixes

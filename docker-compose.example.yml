@@ -4,29 +4,53 @@ services:
     # Or build locally: build: .
     container_name: submerge
     environment:
-      # REQUIRED: Language pairs to generate
-      # Format: "lang_bottom-lang_top,..."
-      # Examples:
-      #   "fr-pl,en-pl"     -> generates .fr-pl.ass and .en-pl.ass
-      #   "de-en"           -> generates .de-en.ass
-      #   "ja-en,fr-en"     -> generates .ja-en.ass and .fr-en.ass
-      SUBTOOLS_PAIRS: "fr-pl,en-pl"
+      # REQUIRED: Language pairs (bottom-top)
+      SUBTOOLS_PAIRS: "de-ko"
 
-      # OPTIONAL: Subtitle appearance
-      SUBTOOLS_COLOR_BOTTOM: "#FFFFFF"   # White (bottom language)
-      SUBTOOLS_COLOR_TOP: "#FFFF00"      # Yellow (top language)
-      SUBTOOLS_FONTSIZE: "18"            # Font size
+      # Colors (bottom = Deutsch, top = Koreanisch)
+      SUBTOOLS_COLOR_BOTTOM: "#FFFFFF"
+      SUBTOOLS_COLOR_TOP: "#FFD700"
+      SUBTOOLS_FONTSIZE: "18"
 
-      # OPTIONAL: Layout
-      # - "top-bottom": one language at top, one at bottom (default)
-      # - "stacked":    both at bottom, one above the other
+      # Fonts (Noto Sans KR für koreanische Zeichen wichtig!)
+      SUBTOOLS_FONT_BOTTOM: ""
+      SUBTOOLS_FONT_TOP: "Noto Sans KR"
+
+      # Layout: "top-bottom" oder "stacked"
       SUBTOOLS_LAYOUT: "top-bottom"
+
+      # Medienpfad (muss mit Bazarr/Sonarr/Radarr Volume übereinstimmen)
+      SUBTOOLS_MEDIA_ROOT: "/data"
+
+      # Polling wenn Subtitles noch fehlen (Sekunden, max 30 Versuche)
+      SUBTOOLS_POLL_INTERVAL: "60"
+
+      # SQLite Retry-Queue Timeout in Stunden
+      SUBTOOLS_RETRY_TIMEOUT_H: "48"
+
+      # Web UI Authentifizierung (leer = kein Login nötig)
+      SUBTOOLS_UI_USER: "admin"
+      SUBTOOLS_UI_PASSWORD: ""
+
+      # Rate Limiting pro IP (Requests/Minute, 0 = deaktiviert)
+      SUBTOOLS_RATE_LIMIT_RPM: "30"
+
     volumes:
-      # Must match Bazarr's volume exactly
-      - /path/to/data:/data
+      # Muss exakt mit dem Pfad in Bazarr/Sonarr/Radarr übereinstimmen
+      - /path/to/media:/data
+
     ports:
-      - 8282:8282
+      # Web UI: http://<server-ip>:8282
+      # API: http://<server-ip>:8282/hook (Bazarr Webhook)
+      #       http://<server-ip>:8282/lingarr-hook (Lingarr Webhook)
+      - "8282:8282"
+
     restart: unless-stopped
-    # Uncomment to join Bazarr's network:
+
+    # Uncomment wenn im selben Docker-Netzwerk wie Bazarr/Sonarr/Radarr:
     # networks:
     #   - media
+
+# networks:
+#   media:
+#     external: true

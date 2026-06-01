@@ -131,7 +131,8 @@ class SubtoolsSettings(BaseSettings):
         _parse_pairs_string(v)  # Raises ValueError if invalid
         return v
 
-    @field_validator("color_bottom", "color_top")
+    @field_validator("color_bottom", "color_top", "bottom_color", "top_color",
+                     "bottom_outline_color", "top_outline_color")
     @classmethod
     def validate_hex_color(cls, v: str) -> str:
         """Validate hex color format #RRGGBB"""

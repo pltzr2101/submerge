@@ -62,17 +62,25 @@ class TestHealthCheckFilter:
 class TestConfigValidationAtStartup:
     """Tests for config validation at startup - critical behavior."""
 
-    def test_missing_pairs_raises_runtime_error(self, monkeypatch):
-        """Server crashes if SUBTOOLS_PAIRS is not defined."""
+    def test_missing_pairs_starts_gracefully(self, monkeypatch):
+        """Server starts gracefully without SUBTOOLS_PAIRS, but /hook returns 503."""
         monkeypatch.delenv("SUBTOOLS_PAIRS", raising=False)
         from submerge.config import get_settings
         get_settings.cache_clear()
 
         import importlib
         import submerge.api
+        importlib.reload(submerge.api)
 
-        with pytest.raises(RuntimeError, match="SUBTOOLS_PAIRS.*required"):
-            importlib.reload(submerge.api)
+        # App should still be created (no RuntimeError)
+        assert submerge.api.app is not None
+
+        # /hook should return 503 when pairs not configured
+        from fastapi.testclient import TestClient
+        client = TestClient(submerge.api.app)
+        resp = client.post("/hook", data={"video": "/data/test.mkv", "subtitle": "/data/test.de.srt", "lang": "de"})
+        assert resp.status_code == 503
+        assert "not configured" in resp.json()["detail"]["message"]
 
         get_settings.cache_clear()
 
