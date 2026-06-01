@@ -17,6 +17,8 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from .config import SubtoolsSettings, get_settings
 from .hook import (
@@ -157,6 +159,60 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
+
+    # Rate limiting (in-memory, per deployment)
+    _rate_limits: dict[str, list[float]] = {}
+
+    class RateLimitMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            rate_limit_rpm = getattr(_get_effective_settings(), "rate_limit_rpm", 30)
+            if rate_limit_rpm <= 0:
+                return await call_next(request)
+
+            client = request.client.host if request.client else "unknown"
+            now = time.monotonic()
+            bucket = _rate_limits.setdefault(client, [])
+            bucket[:] = [t for t in bucket if now - t < 60]
+
+            if len(bucket) >= rate_limit_rpm:
+                return Response(
+                    content=json.dumps({"detail": "Too many requests"}),
+                    status_code=429,
+                    media_type="application/json",
+                )
+            bucket.append(now)
+            return await call_next(request)
+
+    class BasicAuthMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            path = request.url.path
+            # Only protect UI pages, not API/hook endpoints
+            if path in ("/", "/settings", "/styles") or path.startswith("/logs"):
+                password = getattr(_get_effective_settings(), "ui_password", "")
+                if password:
+                    authorization = request.headers.get("Authorization", "")
+                    if not authorization.startswith("Basic "):
+                        return Response(
+                            status_code=401,
+                            headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
+                            content="Authentication required",
+                        )
+                    import base64
+                    try:
+                        decoded = base64.b64decode(authorization[6:]).decode()
+                        _, provided = decoded.split(":", 1)
+                    except Exception:
+                        provided = ""
+                    if provided != password:
+                        return Response(
+                            status_code=401,
+                            headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
+                            content="Invalid credentials",
+                        )
+            return await call_next(request)
+
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(BasicAuthMiddleware)
 
     # Mount static files
     static_dir = Path(__file__).parent / "static"

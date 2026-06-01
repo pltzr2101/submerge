@@ -88,6 +88,7 @@ class SubtoolsSettings(BaseSettings):
 
     # UI auth
     ui_password: str = ""
+    rate_limit_rpm: int = 30  # 0 = disabled
 
     # Apparence
     color_bottom: str = "#FFFFFF"
