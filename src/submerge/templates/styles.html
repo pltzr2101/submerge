@@ -124,6 +124,22 @@ const state = {
     stacked_gap: config.stacked_gap || 8,
 };
 
+const STYLE_KEYS = [
+    'bottom_fontsize','bottom_color','bottom_outline_color','bottom_outline',
+    'bottom_shadow','bottom_bold','bottom_margin_v','bottom_margin_h',
+    'bottom_spacing','font_bottom',
+    'top_fontsize','top_color','top_outline_color','top_outline',
+    'top_shadow','top_bold','top_margin_v','top_margin_h',
+    'top_spacing','font_top',
+    'layout','stacked_gap'
+];
+
+function getStyleState() {
+    return Object.fromEntries(
+        STYLE_KEYS.filter(k => k in state).map(k => [k, state[k]])
+    );
+}
+
 function escHtml(s) {
     const d = document.createElement('div');
     d.textContent = s;
@@ -480,7 +496,7 @@ async function savePreset(name) {
         await fetch('/api/presets', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name, styles: state})
+            body: JSON.stringify({name, styles: getStyleState()})
         });
         // Add new preset to dropdown if not already present
         const sel = document.getElementById('presetSelect');
@@ -510,7 +526,7 @@ async function updatePreset(name) {
         const resp = await fetch('/api/presets', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name, styles: state})
+            body: JSON.stringify({name, styles: getStyleState()})
         });
         if (!resp.ok) throw new Error('Save failed');
         const exportMsg = document.getElementById('exportMsg');
@@ -535,7 +551,15 @@ function renderPresetList(presets) {
         const disabled = isDefault ? 'disabled' : '';
         return `<div class="preset-row">
             <span class="preset-name">${escHtml(p.name)}${star}</span>
-            <button class="${btnClass}" ${disabled} onclick="setDefaultTemplate('${escHtml(p.name)}')">${btnLabel}</button>
+            <div class="preset-actions">
+              <button class="${btnClass}" ${disabled}
+                onclick="setDefaultTemplate('${escHtml(p.name)}')">
+                ${btnLabel}
+              </button>
+              ${!isDefault ? `<button class="btn btn-sm btn-danger"
+                title="Preset löschen"
+                onclick="deletePreset('${escHtml(p.name)}')">✕</button>` : ''}
+            </div>
         </div>`;
     }).join('');
 }
@@ -556,6 +580,52 @@ async function setDefaultTemplate(name) {
             renderPresetList(presets);
         }
     } catch(e) { alert('Failed: ' + e.message); }
+}
+
+async function deletePreset(name) {
+    if (!confirm(`Preset "${name}" wirklich löschen?`)) return;
+    try {
+        const resp = await fetch('/api/presets/' + encodeURIComponent(name), {
+            method: 'DELETE'
+        });
+        if (resp.status === 400) {
+            const data = await resp.json();
+            alert(data.detail?.message || 'Fehler beim Löschen');
+            return;
+        }
+        if (!resp.ok) throw new Error('Delete failed');
+
+        // Remove from dropdown
+        const sel = document.getElementById('presetSelect');
+        const opt = [...sel.options].find(o => o.value === name);
+        if (opt) opt.remove();
+
+        // If deleted preset was currently loaded, reset state
+        if (currentPresetName === name) {
+            currentPresetName = null;
+            const updateBtn = document.getElementById('btnUpdatePreset');
+            if (updateBtn) {
+                updateBtn.disabled = true;
+                updateBtn.title = 'Kein Preset geladen';
+            }
+            sel.value = '';
+        }
+
+        // Refresh preset list panel
+        const allPresets = Array.from(sel.options)
+            .filter(o => o.value)
+            .map(o => ({ name: o.value }));
+        renderPresetList(allPresets);
+
+        // Inline confirmation
+        const exportMsg = document.getElementById('exportMsg');
+        exportMsg.textContent = `"${name}" gelöscht`;
+        exportMsg.className = 'status-msg status-success';
+        exportMsg.style.display = 'inline';
+        setTimeout(() => { exportMsg.style.display = 'none'; }, 2500);
+    } catch(e) {
+        alert('Fehler: ' + e.message);
+    }
 }
 
 async function loadVideoList() {

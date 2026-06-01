@@ -120,3 +120,122 @@ class TestAsyncEndpoints:
         source = inspect.getsource(api_module.api_frame_extract)
         assert "BackgroundTask(lambda" not in source
         assert "BackgroundTask(Path(" in source
+
+
+class TestPresetDelete:
+    """Tests for DELETE /api/presets/{name} endpoint."""
+
+    @staticmethod
+    def _make_client(tmp_path, monkeypatch, pairs="fr-pl,en-pl"):
+        """Create a TestClient with isolated media_root."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", pairs)
+        from submerge.config import get_settings
+        get_settings.cache_clear()
+
+        import importlib
+
+        from submerge import api as api_module
+        importlib.reload(api_module)
+
+        from starlette.testclient import TestClient
+        return TestClient(api_module.app), get_settings
+
+    def test_delete_existing_preset(self, tmp_path, monkeypatch):
+        """DELETE an existing custom preset returns 200 with deleted name."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.post("/api/presets", json={
+            "name": "test-delete", "styles": {"layout": "stacked"}
+        })
+        assert resp.status_code == 200
+
+        resp = client.delete("/api/presets/test-delete")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["deleted"] == "test-delete"
+
+        get_settings.cache_clear()
+
+    def test_delete_nonexistent_returns_404(self, tmp_path, monkeypatch):
+        """DELETE a non-existing preset returns 404."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.delete("/api/presets/nonexistent-xyz")
+        assert resp.status_code == 404
+
+        get_settings.cache_clear()
+
+    def test_delete_default_template_returns_400(self, tmp_path, monkeypatch):
+        """DELETE of the active default_template returns 400."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.post("/api/presets", json={
+            "name": "my-default", "styles": {"layout": "top-bottom"}
+        })
+        assert resp.status_code == 200
+
+        resp = client.post("/api/settings/default-template",
+                           json={"template": "my-default"})
+        assert resp.status_code == 200
+
+        resp = client.delete("/api/presets/my-default")
+        assert resp.status_code == 400
+        data = resp.json()
+        assert "default template" in data.get("detail", {}).get("message", "")
+
+        get_settings.cache_clear()
+
+    def test_delete_builtin_returns_400(self, tmp_path, monkeypatch):
+        """DELETE of a built-in preset returns 400."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.delete("/api/presets/Cinema Dark")
+        assert resp.status_code == 400
+
+        get_settings.cache_clear()
+
+
+class TestMergeUnknownKeys:
+    """Fix 2: api_merge must filter unknown keys from preset overrides."""
+
+    def test_merge_with_unknown_keys_returns_200(self, tmp_path, monkeypatch):
+        """POST /api/merge with a preset containing UI-only keys returns 200."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "de-ko")
+        from submerge.config import get_settings
+        get_settings.cache_clear()
+
+        import importlib
+
+        from submerge import api as api_module
+        importlib.reload(api_module)
+
+        from starlette.testclient import TestClient
+        client = TestClient(api_module.app)
+
+        # Create a video file
+        video_path = tmp_path / "TestShow.mkv"
+        video_path.touch()
+
+        # Save a preset with an unknown UI-only key (topText)
+        resp = client.post("/api/presets", json={
+            "name": "with-ui-keys",
+            "styles": {
+                "layout": "top-bottom",
+                "topText": "Some preview text",
+                "bottom_color": "#FFFFFF",
+                "top_color": "#FFD700",
+            }
+        })
+        assert resp.status_code == 200
+
+        # api_merge should NOT 500 — filtering strips unknown keys
+        resp = client.post("/api/merge", json={
+            "video_path": str(video_path),
+            "template": "with-ui-keys",
+        })
+        assert resp.status_code == 200
+
+        get_settings.cache_clear()

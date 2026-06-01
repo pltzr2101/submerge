@@ -358,8 +358,15 @@ legend {
 .default-badge { color: var(--accent); font-weight: bold; margin-left: 4px; }
 
 /* Danger button */
-.btn-danger { background: var(--error); border-color: var(--error); color: #fff; }
-.btn-danger:hover { background: #c0392b; }
+.btn-danger {
+    color: var(--color-error, #c0392b);
+    border: 1px solid currentColor;
+    background: transparent;
+}
+.btn-danger:hover {
+    background: var(--color-error, #c0392b);
+    color: #fff;
+}
 
 /* Accent button (for Re-merge) */
 .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -382,6 +389,11 @@ legend {
 }
 .preset-row:hover { background: rgba(255,255,255,0.02); }
 .preset-name { font-size: 0.9rem; }
+.preset-actions {
+    display: flex;
+    gap: var(--space-2, 0.5rem);
+    align-items: center;
+}
 .preset-default-btn {
     opacity: 0.6; cursor: default;
 }

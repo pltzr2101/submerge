@@ -575,6 +575,9 @@ async def api_merge(request: Request):
                 from .config import get_settings_for_test
                 overrides = presets[template_name]
                 overrides["pairs_raw"] = settings.pairs_raw
+                # Defense-in-depth: filter out unknown keys (e.g. UI-only fields)
+                known_fields = set(SubtoolsSettings.model_fields.keys())
+                overrides = {k: v for k, v in overrides.items() if k in known_fields}
                 merge_settings = get_settings_for_test(**overrides)
 
         # Find subtitle paths for all required languages
@@ -1141,12 +1144,20 @@ def api_presets_delete(name: str):
     """Delete a custom style preset (built-in presets cannot be deleted)."""
     if name in _DEFAULT_PRESETS:
         raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"})  # noqa: E501
+
     presets = _load_presets()
     if name not in presets:
         raise HTTPException(status_code=404)
+
+    # Prevent deleting the currently active default template
+    app_settings = _load_app_settings()
+    default_template = app_settings.get("default_template", "")
+    if name == default_template:
+        raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete the active default template"})  # noqa: E501
+
     del presets[name]
     _save_custom_presets(presets)
-    return {"status": "ok"}
+    return {"status": "ok", "deleted": name}
 
 
 @app.get("/api/settings/default-template")
