@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -21,6 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from .config import SubtoolsSettings, get_settings
+from . import __version__
 from .hook import (
     InvalidLanguageError,
     ProcessingError,
@@ -156,7 +158,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="SubMerge API",
         description="API for automatic bilingual subtitle generation",
-        version="1.0.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -200,10 +202,15 @@ def create_app() -> FastAPI:
                     import base64
                     try:
                         decoded = base64.b64decode(authorization[6:]).decode()
-                        _, provided = decoded.split(":", 1)
+                        provided_user, provided_pass = decoded.split(":", 1)
+                        expected_user = getattr(_get_effective_settings(), "ui_user", "admin")
+                        if provided_user != expected_user or provided_pass != password:
+                            return Response(
+                                status_code=401,
+                                headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
+                                content="Invalid credentials",
+                            )
                     except Exception:
-                        provided = ""
-                    if provided != password:
                         return Response(
                             status_code=401,
                             headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
@@ -225,12 +232,13 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
-def validate_path(path_str: str, param_name: str) -> Path:
+def validate_path(path_str: str, param_name: str, check_media_root: bool = False) -> Path:
     """Validate and resolve a path.
 
     Args:
         path_str: Path to validate
         param_name: Parameter name (for error messages)
+        check_media_root: If True, enforce path is within SUBTOOLS_MEDIA_ROOT
 
     Returns:
         Resolved and validated Path
@@ -249,7 +257,22 @@ def validate_path(path_str: str, param_name: str) -> Path:
             )
 
         # Resolve to eliminate .. and symlinks
-        return path.resolve()
+        resolved_path = path.resolve()
+
+        # Enforce media_root boundary for user-facing endpoints
+        if check_media_root:
+            settings = get_settings()
+            media_root = Path(settings.media_root).resolve()
+            if not str(resolved_path).startswith(str(media_root) + "/") and str(resolved_path) != str(media_root):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "status": "error",
+                        "message": f"{param_name} must be within media root ({media_root})",
+                    },
+                )
+
+        return resolved_path
 
     except HTTPException:
         raise
@@ -259,6 +282,39 @@ def validate_path(path_str: str, param_name: str) -> Path:
             status_code=400,
             detail={"status": "error", "message": f"Invalid {param_name} path"},
         )
+
+
+def _find_video_for_subtitle(sub_path: Path) -> Path | None:
+    """Find the video file corresponding to a subtitle file.
+
+    Peels language-code suffixes from the filename stem until a
+    matching video file is found. Handles multi-dot filenames like
+    'Movie.2024.BluRay.de.hi.srt'.
+
+    Args:
+        sub_path: Path to subtitle file
+
+    Returns:
+        Path to video file or None
+    """
+    video_exts = (".mkv", ".mp4", ".avi", ".m4v")
+    stem = sub_path.stem
+
+    # Keep peeling suffixes until find a video or no dots left
+    while "." in stem:
+        for ext in video_exts:
+            candidate = sub_path.parent / (stem + ext)
+            if candidate.exists():
+                return candidate
+        stem = stem.rsplit(".", 1)[0]
+
+    # Last try: the stem as-is
+    for ext in video_exts:
+        candidate = sub_path.parent / (stem + ext)
+        if candidate.exists():
+            return candidate
+
+    return None
 
 
 # =============================================================================
@@ -453,7 +509,7 @@ async def api_merge(request: Request):
         settings = _get_effective_settings()
 
         # Find subtitle paths for all required languages
-        from .hook import check_all_languages_present, get_lock_path, process_bilingual_merge, should_skip_existing
+        from .hook import check_all_languages_present, process_bilingual_merge, should_skip_existing
 
         sub_paths = check_all_languages_present(video_path, settings)
         if sub_paths is None:
@@ -506,30 +562,28 @@ async def api_sync(request: Request):
         if not sub_path.exists():
             raise HTTPException(status_code=400, detail={"status": "error", "message": "Subtitle file not found"})
 
-        # Find reference subtitle (other language from pairs containing this lang)
-        video_name_no_lang = sub_path.stem
         video_dir = sub_path.parent
 
-        # Find matching video file for audio sync fallback
-        video_file = None
-        for ext in (".mkv", ".mp4", ".avi", ".m4v"):
-            candidate = sub_path.parent / (sub_path.stem.rsplit(".", 1)[0] + ext)
-            if candidate.exists():
-                video_file = candidate
-                break
+        # Robust video detection: peel language suffixes from the stem
+        video_file = _find_video_for_subtitle(sub_path)
+        if video_file is None:
+            # Fallback: try the old rsplit method
+            for ext in (".mkv", ".mp4", ".avi", ".m4v"):
+                candidate = sub_path.parent / (sub_path.stem.rsplit(".", 1)[0] + ext)
+                if candidate.exists():
+                    video_file = candidate
+                    break
 
         # Try to find reference subtitle in another language
         ref_path = None
-        for other_lang in settings.required_langs:
-            if other_lang == lang:
-                continue
-            ref_path = find_subtitle_path(
-                Path(sub_path.parent / (sub_path.stem.rsplit(".", 1)[0] + ".mkv")),
-                other_lang,
-            )
-            if ref_path and str(ref_path) != str(sub_path):
-                break
-            ref_path = None
+        if video_file is not None:
+            for other_lang in settings.required_langs:
+                if other_lang == lang:
+                    continue
+                ref_path = find_subtitle_path(video_file, other_lang)
+                if ref_path and str(ref_path) != str(sub_path):
+                    break
+                ref_path = None
 
         # Output path
         output_path = sub_path.parent / f"{sub_path.stem}.synced{sub_path.suffix}"
@@ -565,9 +619,19 @@ async def api_sync(request: Request):
 
 
 @app.post("/scan")
-def api_scan():
-    """Scan media directories and start merges for videos needing them."""
+def api_scan(background_tasks: BackgroundTasks):
+    """Scan media directories and start merges for videos needing them.
+
+    Runs in background to avoid blocking the request thread.
+    Progress is logged and visible via /logs/stream.
+    """
     settings = _get_effective_settings()
+    background_tasks.add_task(_run_scan, settings)
+    return {"status": "started", "message": "Scan running in background, see /logs/stream for progress"}
+
+
+def _run_scan(settings: SubtoolsSettings) -> dict:
+    """Execute the scan merge operation (runs in background task)."""
     try:
         entries = find_videos_needing_merge(settings.media_root, settings)
         merged = 0
@@ -596,15 +660,11 @@ def api_scan():
             except Exception as e:
                 logger.error(f"Scan merge error for {video_path.name}: {e}")
 
-        return {
-            "status": "ok",
-            "scanned": len(entries),
-            "merged": merged,
-            "polling": polling,
-        }
+        logger.info(f"Scan complete: scanned={len(entries)}, merged={merged}, polling={polling}")
+        return {"status": "ok", "scanned": len(entries), "merged": merged, "polling": polling}
     except Exception as e:
-        logger.error(f"Scan error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        logger.exception(f"Scan error: {e}")
+        raise
 
 
 @app.get("/logs/stream")
@@ -891,6 +951,7 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
     if not video.exists():
         raise HTTPException(status_code=400, detail={"status": "error", "message": "Video not found"})
 
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
@@ -908,6 +969,10 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
         return FileResponse(tmp_path, media_type="image/jpeg", background=lambda: Path(tmp_path).unlink(missing_ok=True))
 
     except HTTPException:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
         raise
     except Exception as e:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
