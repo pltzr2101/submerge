@@ -331,21 +331,27 @@ def _find_video_for_subtitle(sub_path: Path) -> Path | None:
 async def ui_index(request: Request):
     """Dashboard page."""
     settings = _get_effective_settings()
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "pairs": [f"{b}-{t}" for b, t in settings.pairs],
-        "langs": sorted(settings.required_langs),
-    })
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "pairs": [f"{b}-{t}" for b, t in settings.pairs],
+            "langs": sorted(settings.required_langs),
+        },
+    )
 
 
 @app.get("/settings", response_class=HTMLResponse)
 async def ui_settings(request: Request):
     """Settings page."""
     settings = _get_effective_settings()
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
-        "settings": settings,
-    })
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "settings": settings,
+        },
+    )
 
 
 @app.get("/styles", response_class=HTMLResponse)
@@ -355,11 +361,13 @@ async def ui_styles(request: Request):
     pairs = settings.pairs
     lang_bottom = pairs[0][0] if pairs else "de"
     lang_top = pairs[0][1] if pairs else "ko"
-    return templates.TemplateResponse("styles.html", {
-        "request": request,
-        "lang_bottom": lang_bottom,
-        "lang_top": lang_top,
-        "config": {
+    return templates.TemplateResponse(
+        request,
+        "styles.html",
+        {
+            "lang_bottom": lang_bottom,
+            "lang_top": lang_top,
+            "config": {
             "bottom_fontsize": settings.bottom_fontsize,
             "bottom_color": settings.bottom_color,
             "bottom_outline_color": settings.bottom_outline_color,
