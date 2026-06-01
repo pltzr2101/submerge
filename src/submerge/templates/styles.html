@@ -1,0 +1,463 @@
+{% extends "base.html" %}
+{% block title %}Style Editor{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Style Editor</h1>
+    <div class="toolbar">
+        <select id="presetSelect" class="filter-select">
+            <option value="">-- Load Preset --</option>
+        </select>
+        <button id="btnSavePreset" class="btn">Save As...</button>
+        <button id="btnExportAss" class="btn">Copy ASS Styles</button>
+        <span id="exportMsg" class="status-msg hidden" style="display:inline"></span>
+    </div>
+</div>
+
+<div class="style-editor-layout">
+    <div class="style-panel">
+        <div class="tabs">
+            <button class="tab active" data-tab="bottom">Bottom ({{lang_bottom|upper}})</button>
+            <button class="tab" data-tab="top">Top ({{lang_top|upper}})</button>
+            <button class="tab" data-tab="global">Layout</button>
+        </div>
+
+        <div class="tab-content active" id="tab-bottom">
+            {% include "style_fields.html" %}
+        </div>
+        <div class="tab-content" id="tab-top">
+            {% include "style_fields.html" %}
+        </div>
+        <div class="tab-content" id="tab-global">
+            <div class="form-group">
+                <label>Layout Mode</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="layout" value="top-bottom" checked> Top-Bottom</label>
+                    <label><input type="radio" name="layout" value="stacked"> Stacked</label>
+                </div>
+            </div>
+            <div class="form-group" id="stackedGapGroup" style="display:none">
+                <label>Stacked Gap: <span id="stackedGapVal">8</span>px</label>
+                <input type="range" id="stackedGap" min="0" max="50" value="8">
+            </div>
+            <div class="form-group">
+                <label>Background Preset</label>
+                <select id="bgPreset">
+                    <option value="#000000">Black</option>
+                    <option value="#1a1a2e">Dark Blue</option>
+                    <option value="#0d0d0d">Cinema Dark</option>
+                    <option value="#2d1b2e">Dark Plum</option>
+                    <option value="custom">Custom Color</option>
+                    <option value="frame">Frame from Video</option>
+                </select>
+            </div>
+            <div class="form-group" id="bgCustomGroup" style="display:none">
+                <label>Custom Background</label>
+                <input type="color" id="bgCustom" value="#000000">
+            </div>
+            <div class="form-group" id="bgFrameGroup" style="display:none">
+                <label>Video for Frame</label>
+                <select id="frameVideo"></select>
+                <button id="btnExtractFrame" class="btn btn-sm" style="margin-top:4px">Extract Frame</button>
+                <input type="number" id="frameTimestamp" value="30" min="0" max="9999" style="width:80px;margin-left:4px" title="Timestamp in seconds">
+                <span id="frameMsg"></span>
+            </div>
+            <div class="form-group">
+                <label>Bottom Text</label>
+                <textarea id="bottomText" rows="2">{{lang_bottom|upper}} preview text</textarea>
+            </div>
+            <div class="form-group">
+                <label>Top Text</label>
+                <textarea id="topText" rows="2">{{lang_top|upper}} preview text</textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="preview-panel">
+        <h3>Preview</h3>
+        <canvas id="previewCanvas" width="640" height="360"></canvas>
+        <p class="preview-hint">16:9 preview — changes update in real-time</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const config = {{ config | tojson }};
+const langBottom = '{{ lang_bottom }}';
+const langTop = '{{ lang_top }}';
+let currentTab = 'bottom';
+let currentBgImage = null;
+
+const state = {
+    bottom_fontsize: config.bottom_fontsize || 20,
+    bottom_color: config.bottom_color || '#FFFFFF',
+    bottom_outline_color: config.bottom_outline_color || '#000000',
+    bottom_outline: config.bottom_outline || 2,
+    bottom_shadow: config.bottom_shadow || 1,
+    bottom_bold: config.bottom_bold || false,
+    bottom_margin_v: config.bottom_margin_v || 30,
+    bottom_margin_h: config.bottom_margin_h || 20,
+    bottom_spacing: config.bottom_spacing || 0,
+    font_bottom: config.font_bottom || '',
+    top_fontsize: config.top_fontsize || 18,
+    top_color: config.top_color || '#FFD700',
+    top_outline_color: config.top_outline_color || '#000000',
+    top_outline: config.top_outline || 2,
+    top_shadow: config.top_shadow || 1,
+    top_bold: config.top_bold || false,
+    top_margin_v: config.top_margin_v || 15,
+    top_margin_h: config.top_margin_h || 20,
+    top_spacing: config.top_spacing || 0,
+    font_top: config.font_top || 'Noto Sans KR',
+    layout: config.layout || 'top-bottom',
+    stacked_gap: config.stacked_gap || 8,
+};
+
+function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function debounce(fn, ms) {
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+const renderPreview = debounce(() => {
+    const canvas = document.getElementById('previewCanvas');
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+
+    // Background
+    ctx.fillStyle = currentBgImage ? '#000' : (document.getElementById('bgCustom')?.value || '#000');
+    ctx.fillRect(0, 0, w, h);
+    if (currentBgImage) {
+        ctx.drawImage(currentBgImage, 0, 0, w, h);
+    }
+
+    function drawSub(text, fontName, fontSize, color, outlineColor, outlineW, shadow, bold, marginV, marginH, spacing, isTop) {
+        const family = fontName ? `'${fontName}', sans-serif` : 'Arial, sans-serif';
+        const weight = bold ? 'bold ' : '';
+        ctx.font = `${weight}${fontSize}px ${family}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = isTop ? 'top' : 'bottom';
+
+        const x = w / 2;
+        const y = isTop ? marginV : h - marginV;
+
+        // Shadow
+        if (shadow > 0) {
+            ctx.shadowBlur = shadow;
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+        }
+
+        // Outline
+        if (outlineW > 0) {
+            ctx.strokeStyle = outlineColor;
+            ctx.lineWidth = outlineW;
+            ctx.strokeText(text, x, y);
+        }
+
+        // Fill
+        ctx.fillStyle = color;
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+        ctx.fillText(text, x, y);
+    }
+
+    const bottomText = document.getElementById('bottomText')?.value || 'Bottom text';
+    const topText = document.getElementById('topText')?.value || 'Top text';
+
+    if (state.layout === 'stacked') {
+        drawSub(bottomText, state.font_bottom, state.bottom_fontsize, state.bottom_color,
+            state.bottom_outline_color, state.bottom_outline, state.bottom_shadow,
+            state.bottom_bold, state.bottom_margin_v, state.bottom_margin_h, state.bottom_spacing, false);
+        drawSub(topText, state.font_top, state.top_fontsize, state.top_color,
+            state.top_outline_color, state.top_outline, state.top_shadow,
+            state.top_bold, state.bottom_margin_v + state.stacked_gap, state.top_margin_h, state.top_spacing, false);
+    } else {
+        drawSub(bottomText, state.font_bottom, state.bottom_fontsize, state.bottom_color,
+            state.bottom_outline_color, state.bottom_outline, state.bottom_shadow,
+            state.bottom_bold, state.bottom_margin_v, state.bottom_margin_h, state.bottom_spacing, false);
+        drawSub(topText, state.font_top, state.top_fontsize, state.top_color,
+            state.top_outline_color, state.top_outline, state.top_shadow,
+            state.top_bold, state.top_margin_v, state.top_margin_h, state.top_spacing, true);
+    }
+}, 300);
+
+function bindSlider(id, key) {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id + 'Val');
+    if (!el) return;
+    el.addEventListener('input', () => {
+        state[key] = parseFloat(el.value);
+        if (valEl) valEl.textContent = el.value;
+        renderPreview();
+    });
+}
+
+function bindInput(id, key, isBool) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener(isBool ? 'change' : 'input', () => {
+        state[key] = isBool ? el.checked : (el.type === 'color' ? el.value : el.value);
+        renderPreview();
+    });
+}
+
+function buildField(target, prefix, labelPrefix) {
+    const html = `
+        <div class="form-group">
+            <label>Font</label>
+            <select id="${target}-font" data-key="font_${target}">
+                <optgroup label="CJK / Koreanisch">
+                    <option value="Noto Sans KR">Noto Sans KR</option>
+                    <option value="Noto Sans CJK KR">Noto Sans CJK KR</option>
+                    <option value="Malgun Gothic">Malgun Gothic (Samsung/Windows)</option>
+                    <option value="Apple SD Gothic Neo">Apple SD Gothic Neo (tvOS)</option>
+                    <option value="NanumGothic">NanumGothic</option>
+                    <option value="NanumMyeongjo">NanumMyeongjo</option>
+                </optgroup>
+                <optgroup label="Western">
+                    <option value="">Arial (ASS fallback)</option>
+                    <option value="Liberation Sans">Liberation Sans</option>
+                    <option value="DejaVu Sans">DejaVu Sans</option>
+                    <option value="Trebuchet MS">Trebuchet MS</option>
+                    <option value="Roboto">Roboto</option>
+                </optgroup>
+                <optgroup label="Custom">
+                    <option value="__custom__">-- Custom --</option>
+                </optgroup>
+            </select>
+            <input type="text" id="${target}-font-custom" placeholder="Custom font name" style="display:none;margin-top:4px;width:100%">
+        </div>
+        <div class="form-group">
+            <label>Font Size: <span id="${target}-fontsizeVal">${state[target+'_fontsize']}</span>px</label>
+            <input type="range" id="${target}-fontsize" min="8" max="72" value="${state[target+'_fontsize']}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Text Color</label>
+                <input type="color" id="${target}-color" value="${state[target+'_color']}">
+            </div>
+            <div class="form-group">
+                <label>Outline Color</label>
+                <input type="color" id="${target}-outline_color" value="${state[target+'_outline_color']}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Outline: <span id="${target}-outlineVal">${state[target+'_outline']}</span></label>
+                <input type="range" id="${target}-outline" min="0" max="4" step="0.5" value="${state[target+'_outline']}">
+            </div>
+            <div class="form-group">
+                <label>Shadow: <span id="${target}-shadowVal">${state[target+'_shadow']}</span></label>
+                <input type="range" id="${target}-shadow" min="0" max="4" value="${state[target+'_shadow']}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label><input type="checkbox" id="${target}-bold" ${state[target+'_bold'] ? 'checked' : ''}> Bold</label>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Margin V: <span id="${target}-margin_vVal">${state[target+'_margin_v']}</span></label>
+                <input type="range" id="${target}-margin_v" min="0" max="120" value="${state[target+'_margin_v']}">
+            </div>
+            <div class="form-group">
+                <label>Margin H: <span id="${target}-margin_hVal">${state[target+'_margin_h']}</span></label>
+                <input type="range" id="${target}-margin_h" min="0" max="100" value="${state[target+'_margin_h']}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Character Spacing: <span id="${target}-spacingVal">${state[target+'_spacing']}</span></label>
+            <input type="range" id="${target}-spacing" min="-2" max="10" step="0.5" value="${state[target+'_spacing']}">
+        </div>`;
+
+    const container = document.getElementById('tab-' + target);
+    if (container) container.innerHTML = html + '<p class="preview-hint">Font tip: For Korean subtitles, use "Noto Sans KR"</p>';
+
+    // Bind all controls
+    setTimeout(() => {
+        bindSlider(target + '-fontsize', target + '_fontsize');
+        bindSlider(target + '-outline', target + '_outline');
+        bindSlider(target + '-shadow', target + '_shadow');
+        bindSlider(target + '-margin_v', target + '_margin_v');
+        bindSlider(target + '-margin_h', target + '_margin_h');
+        bindSlider(target + '-spacing', target + '_spacing');
+        bindInput(target + '-color', target + '_color', false);
+        bindInput(target + '-outline_color', target + '_outline_color', false);
+        bindInput(target + '-bold', target + '_bold', true);
+
+        const fontSel = document.getElementById(target + '-font');
+        const fontCustom = document.getElementById(target + '-font-custom');
+        fontSel.value = state['font_' + target] || '';
+        if (fontSel.value === '') fontSel.value = target === 'top' ? 'Noto Sans KR' : '';
+        if (![...fontSel.options].some(o => o.value === fontSel.value)) {
+            fontSel.value = '__custom__';
+            fontCustom.style.display = 'block';
+            fontCustom.value = state['font_' + target] || '';
+        }
+        fontSel.addEventListener('change', () => {
+            if (fontSel.value === '__custom__') {
+                fontCustom.style.display = 'block';
+                state['font_' + target] = fontCustom.value || '';
+            } else {
+                fontCustom.style.display = 'none';
+                state['font_' + target] = fontSel.value;
+            }
+            renderPreview();
+        });
+        fontCustom.addEventListener('input', () => {
+            state['font_' + target] = fontCustom.value;
+            renderPreview();
+        });
+    }, 10);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    buildField('bottom', 'bottom_', 'Bottom');
+    buildField('top', 'top_', 'Top');
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(t => {
+        t.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
+            t.classList.add('active');
+            document.getElementById('tab-' + t.dataset.tab).classList.add('active');
+            currentTab = t.dataset.tab;
+        });
+    });
+
+    // Global controls
+    document.querySelectorAll('input[name="layout"]').forEach(r => {
+        r.addEventListener('change', () => {
+            state.layout = r.value;
+            document.getElementById('stackedGapGroup').style.display = r.value === 'stacked' ? 'block' : 'none';
+            renderPreview();
+        });
+    });
+    if (state.layout === 'stacked') document.getElementById('stackedGapGroup').style.display = 'block';
+
+    bindSlider('stackedGap', 'stacked_gap');
+    bindInput('bottomText', 'bottomText', false);
+    bindInput('topText', 'topText', false);
+
+    document.getElementById('bgPreset').addEventListener('change', (e) => {
+        document.getElementById('bgCustomGroup').style.display = e.target.value === 'custom' ? 'block' : 'none';
+        document.getElementById('bgFrameGroup').style.display = e.target.value === 'frame' ? 'block' : 'none';
+        if (e.target.value === 'frame') {
+            loadVideoList();
+        } else if (e.target.value !== 'custom') {
+            currentBgImage = null;
+            document.getElementById('bgCustom').value = e.target.value;
+            renderPreview();
+        }
+    });
+    document.getElementById('bgCustom').addEventListener('input', () => { currentBgImage = null; renderPreview(); });
+
+    document.getElementById('btnExtractFrame').addEventListener('click', async () => {
+        const video = document.getElementById('frameVideo').value;
+        const ts = document.getElementById('frameTimestamp').value || 30;
+        if (!video) return;
+        try {
+            const resp = await fetch(`/api/frame-extract?video_path=${encodeURIComponent(video)}&timestamp_s=${ts}`);
+            if (!resp.ok) throw new Error('Extraction failed');
+            const blob = await resp.blob();
+            const img = new Image();
+            img.onload = () => { currentBgImage = img; renderPreview(); };
+            img.src = URL.createObjectURL(blob);
+            document.getElementById('frameMsg').textContent = 'Frame loaded';
+        } catch(e) {
+            document.getElementById('frameMsg').textContent = 'Error: ' + e.message;
+        }
+    });
+
+    // Presets
+    loadPresets();
+    document.getElementById('presetSelect').addEventListener('change', (e) => {
+        if (!e.target.value) return;
+        loadPreset(e.target.value);
+    });
+
+    document.getElementById('btnSavePreset').addEventListener('click', () => {
+        const name = prompt('Preset name:');
+        if (!name) return;
+        savePreset(name);
+    });
+
+    document.getElementById('btnExportAss').addEventListener('click', () => {
+        const bottomFont = state.font_bottom || 'Arial';
+        const topFont = state.font_top || 'Arial';
+        const ass = `[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: bottom,${bottomFont},${state.bottom_fontsize},&H00${state.bottom_color.replace('#','').match(/../g).reverse().join('')},&H00000000,&H00${state.bottom_outline_color.replace('#','').match(/../g).reverse().join('')},&H00000000,${state.bottom_bold ? -1 : 0},0,0,0,100,100,${state.bottom_spacing},0,1,${state.bottom_outline},${state.bottom_shadow},2,${state.bottom_margin_h},${state.bottom_margin_h},${state.bottom_margin_v},1
+Style: top,${topFont},${state.top_fontsize},&H00${state.top_color.replace('#','').match(/../g).reverse().join('')},&H00000000,&H00${state.top_outline_color.replace('#','').match(/../g).reverse().join('')},&H00000000,${state.top_bold ? -1 : 0},0,0,0,100,100,${state.top_spacing},0,1,${state.top_outline},${state.top_shadow},${state.layout === 'stacked' ? 2 : 8},${state.top_margin_h},${state.top_margin_h},${state.layout === 'stacked' ? state.bottom_margin_v + state.stacked_gap : state.top_margin_v},1`;
+        navigator.clipboard.writeText(ass).then(() => {
+            const el = document.getElementById('exportMsg');
+            el.textContent = 'Copied!'; el.className = 'status-msg status-success';
+            setTimeout(() => el.classList.add('hidden'), 2000);
+        });
+    });
+
+    renderPreview();
+});
+
+async function loadPresets() {
+    try {
+        const resp = await fetch('/api/presets');
+        const data = await resp.json();
+        const sel = document.getElementById('presetSelect');
+        data.presets.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.name;
+            sel.appendChild(opt);
+        });
+    } catch(e) {}
+}
+
+async function loadPreset(name) {
+    try {
+        const resp = await fetch('/api/presets/' + encodeURIComponent(name));
+        const data = await resp.json();
+        Object.assign(state, data.styles);
+        // Rebuild UI
+        buildField('bottom', 'bottom_', 'Bottom');
+        buildField('top', 'top_', 'Top');
+        setTimeout(() => renderPreview(), 50);
+    } catch(e) {}
+}
+
+async function savePreset(name) {
+    try {
+        await fetch('/api/presets', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, styles: state})
+        });
+        alert('Preset saved!');
+        location.reload();
+    } catch(e) { alert('Failed: ' + e.message); }
+}
+
+async function loadVideoList() {
+    try {
+        const resp = await fetch('/api/media');
+        const entries = await resp.json();
+        const sel = document.getElementById('frameVideo');
+        sel.innerHTML = '';
+        entries.forEach(e => {
+            const opt = document.createElement('option');
+            opt.value = e.video_path;
+            opt.textContent = e.video_name;
+            sel.appendChild(opt);
+        });
+    } catch(e) {}
+}
+</script>
+{% endblock %}

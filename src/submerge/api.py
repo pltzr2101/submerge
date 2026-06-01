@@ -231,6 +231,44 @@ async def ui_settings(request: Request):
     })
 
 
+@app.get("/styles", response_class=HTMLResponse)
+async def ui_styles(request: Request):
+    """Style editor page."""
+    settings = _get_effective_settings()
+    pairs = settings.pairs
+    lang_bottom = pairs[0][0] if pairs else "de"
+    lang_top = pairs[0][1] if pairs else "ko"
+    return templates.TemplateResponse("styles.html", {
+        "request": request,
+        "lang_bottom": lang_bottom,
+        "lang_top": lang_top,
+        "config": {
+            "bottom_fontsize": settings.bottom_fontsize,
+            "bottom_color": settings.bottom_color,
+            "bottom_outline_color": settings.bottom_outline_color,
+            "bottom_outline": settings.bottom_outline,
+            "bottom_shadow": settings.bottom_shadow,
+            "bottom_bold": settings.bottom_bold,
+            "bottom_margin_v": settings.bottom_margin_v,
+            "bottom_margin_h": settings.bottom_margin_h,
+            "bottom_spacing": settings.bottom_spacing,
+            "font_bottom": settings.font_bottom,
+            "top_fontsize": settings.top_fontsize,
+            "top_color": settings.top_color,
+            "top_outline_color": settings.top_outline_color,
+            "top_outline": settings.top_outline,
+            "top_shadow": settings.top_shadow,
+            "top_bold": settings.top_bold,
+            "top_margin_v": settings.top_margin_v,
+            "top_margin_h": settings.top_margin_h,
+            "top_spacing": settings.top_spacing,
+            "font_top": settings.font_top,
+            "layout": settings.layout,
+            "stacked_gap": settings.stacked_gap,
+        },
+    })
+
+
 # =============================================================================
 # Bazarr & Lingarr Hooks
 # =============================================================================
@@ -663,4 +701,157 @@ async def api_settings(request: Request):
 
     except Exception as e:
         logger.error(f"Settings update error: {e}")
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+
+
+# =============================================================================
+# Style Presets
+# =============================================================================
+
+_PRESETS_DIR = Path("/data/style_presets")
+_DEFAULT_PRESETS = {
+    "Standard": {
+        "bottom_fontsize": 20, "bottom_color": "#FFFFFF", "bottom_outline_color": "#000000",
+        "bottom_outline": 2, "bottom_shadow": 1, "bottom_bold": False,
+        "bottom_margin_v": 30, "bottom_margin_h": 20, "bottom_spacing": 0, "font_bottom": "",
+        "top_fontsize": 18, "top_color": "#FFD700", "top_outline_color": "#000000",
+        "top_outline": 2, "top_shadow": 1, "top_bold": False,
+        "top_margin_v": 15, "top_margin_h": 20, "top_spacing": 0, "font_top": "Noto Sans KR",
+        "layout": "top-bottom", "stacked_gap": 8,
+    },
+    "Cinema Dark": {
+        "bottom_fontsize": 22, "bottom_color": "#FFFFFF", "bottom_outline_color": "#000000",
+        "bottom_outline": 3, "bottom_shadow": 2, "bottom_bold": False,
+        "bottom_margin_v": 40, "bottom_margin_h": 30, "bottom_spacing": 0, "font_bottom": "",
+        "top_fontsize": 16, "top_color": "#FFD700", "top_outline_color": "#000000",
+        "top_outline": 3, "top_shadow": 2, "top_bold": False,
+        "top_margin_v": 10, "top_margin_h": 30, "top_spacing": 0, "font_top": "Noto Sans KR",
+        "layout": "top-bottom", "stacked_gap": 10,
+    },
+    "Bright": {
+        "bottom_fontsize": 18, "bottom_color": "#FFFF00", "bottom_outline_color": "#0000FF",
+        "bottom_outline": 1, "bottom_shadow": 0, "bottom_bold": True,
+        "bottom_margin_v": 20, "bottom_margin_h": 15, "bottom_spacing": 0, "font_bottom": "",
+        "top_fontsize": 16, "top_color": "#00FF00", "top_outline_color": "#0000FF",
+        "top_outline": 1, "top_shadow": 0, "top_bold": True,
+        "top_margin_v": 10, "top_margin_h": 15, "top_spacing": 0, "font_top": "Noto Sans KR",
+        "layout": "stacked", "stacked_gap": 12,
+    },
+}
+
+
+def _get_presets_path() -> Path:
+    settings = _get_effective_settings()
+    data_dir = Path(settings.media_root)
+    return data_dir / "style_presets.json"
+
+
+def _load_presets() -> dict:
+    presets = dict(_DEFAULT_PRESETS)
+    path = _get_presets_path()
+    if path.exists():
+        try:
+            custom = json.loads(path.read_text())
+            presets.update(custom)
+        except Exception:
+            pass
+    return presets
+
+
+def _save_custom_presets(presets: dict) -> None:
+    path = _get_presets_path()
+    # Only save non-default presets
+    custom = {k: v for k, v in presets.items() if k not in _DEFAULT_PRESETS}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(custom, indent=2))
+
+
+@app.get("/api/presets")
+def api_presets_list():
+    presets = _load_presets()
+    return {"presets": [{"name": k} for k in sorted(presets.keys())]}
+
+
+@app.get("/api/presets/{name}")
+def api_presets_get(name: str):
+    presets = _load_presets()
+    if name not in presets:
+        raise HTTPException(status_code=404, detail={"status": "error", "message": "Preset not found"})
+    return {"name": name, "styles": presets[name]}
+
+
+@app.post("/api/presets")
+async def api_presets_save(request: Request):
+    try:
+        body = await request.json()
+        name = body.get("name", "").strip()
+        styles = body.get("styles", {})
+        if not name:
+            raise HTTPException(status_code=400, detail={"status": "error", "message": "Name required"})
+        if name in _DEFAULT_PRESETS:
+            raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot override built-in preset"})
+        presets = _load_presets()
+        presets[name] = styles
+        _save_custom_presets(presets)
+        return {"status": "ok", "name": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+
+
+@app.delete("/api/presets/{name}")
+def api_presets_delete(name: str):
+    if name in _DEFAULT_PRESETS:
+        raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"})
+    presets = _load_presets()
+    if name not in presets:
+        raise HTTPException(status_code=404)
+    del presets[name]
+    _save_custom_presets(presets)
+    return {"status": "ok"}
+
+
+# =============================================================================
+# Frame Extraction
+# =============================================================================
+
+
+@app.get("/api/frame-extract")
+def api_frame_extract(video_path: str, timestamp_s: int = 30):
+    """Extract a single frame from a video file via ffmpeg.
+
+    Args:
+        video_path: Absolute path to video file
+        timestamp_s: Timestamp in seconds (default 30)
+
+    Returns:
+        JPEG image bytes
+    """
+    import subprocess
+    import tempfile
+
+    video = validate_path(video_path, "video_path")
+    if not video.exists():
+        raise HTTPException(status_code=400, detail={"status": "error", "message": "Video not found"})
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        cmd = [
+            "ffmpeg", "-y", "-ss", str(timestamp_s),
+            "-i", str(video), "-vframes", "1",
+            "-q:v", "2", tmp_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0 or not Path(tmp_path).exists():
+            raise HTTPException(status_code=500, detail={"status": "error", "message": "Frame extraction failed"})
+
+        from fastapi.responses import FileResponse
+        return FileResponse(tmp_path, media_type="image/jpeg", background=lambda: Path(tmp_path).unlink(missing_ok=True))
+
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
