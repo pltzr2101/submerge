@@ -4,29 +4,19 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from filelock import FileLock, Timeout
 
 from .config import SubtoolsSettings, get_settings
+from .langmap import get_all_aliases
 from .merge import MergeConfig, merge_bilingual
 
 logger = logging.getLogger(__name__)
 
 # Constantes
 LOCK_TIMEOUT = 5  # Secondes
-
-# ISO 639-1 -> ISO 639-2/T mapping for 3-letter code fallback lookups
-ISO_639_1_TO_2 = {
-    "de": "deu", "en": "eng", "ko": "kor", "fr": "fra", "pl": "pol",
-    "es": "spa", "it": "ita", "ja": "jpn", "zh": "zho", "ru": "rus",
-    "pt": "por", "ar": "ara", "nl": "nld", "sv": "swe", "no": "nor",
-    "da": "dan", "fi": "fin", "tr": "tur", "el": "ell", "cs": "ces",
-    "hu": "hun", "ro": "ron", "uk": "ukr", "th": "tha", "vi": "vie",
-    "hi": "hin", "bn": "ben", "id": "ind", "ms": "msa", "tl": "tgl",
-}
 
 # Track active polling jobs: video_path -> threading.Event (set to cancel)
 _polling_jobs: dict[str, threading.Event] = {}
@@ -58,58 +48,70 @@ class HookResult:
 def validate_lang(lang: str, settings: SubtoolsSettings | None = None) -> str:
     """Validate and normalize a language.
 
+    Normalizes any language code variant (ISO 639-1, ISO 639-2, locale-style)
+    to the standard 2-letter code and validates it's in the configured pairs.
+
     Args:
-        lang: Language code (e.g., fr, pl, en)
+        lang: Language code (e.g., fr, fra, fr-FR)
         settings: Settings to get required languages
 
     Returns:
-        Normalized lowercase language
+        Normalized ISO 639-1 lowercase language code
 
     Raises:
         InvalidLanguageError: If language is not in configured pairs
     """
+    from .langmap import normalize_lang
+
     settings = settings or get_settings()
-    lang_lower = lang.lower().strip()
-    if lang_lower not in settings.required_langs:
+    normalized = normalize_lang(lang)
+    if normalized is None:
         raise InvalidLanguageError(
-            f"Invalid language: {lang}. Must be one of: {', '.join(sorted(settings.required_langs))}"
+            f"Unrecognized language: {lang}. Expected ISO 639-1 code."
         )
-    return lang_lower
+    if normalized not in settings.required_langs:
+        raise InvalidLanguageError(
+            f"Invalid language: {lang} (normalized: {normalized}). "
+            f"Must be one of: {', '.join(sorted(settings.required_langs))}"
+        )
+    return normalized
 
 
 def _get_lang_patterns(video_stem: str, lang: str) -> list[str]:
     """Build all possible filename patterns for a language code.
 
-    Handles both 2-letter (ISO 639-1) and 3-letter (ISO 639-2) codes
-    that Bazarr/Lingarr might use.
+    Handles 2-letter (ISO 639-1), 3-letter (ISO 639-2), and locale-style
+    codes that Bazarr/Lingarr might use (e.g., de, deu, ger, de-DE).
 
     Args:
         video_stem: Video filename stem (without extension)
-        lang: 2-letter language code
+        lang: ISO 639-1 2-letter language code
 
     Returns:
         List of filename patterns to try, in priority order
     """
-    lang3 = ISO_639_1_TO_2.get(lang, lang)
+    aliases = get_all_aliases(lang)
     extensions = [".srt", ".ass"]
     hi_extensions = [".hi.srt", ".hi.ass"]
     forced = [".forced.srt", ".forced.ass"]
 
     patterns = []
-    # Priority: 2-letter regular > 2-letter HI > 3-letter regular > 3-letter HI > forced variants
-    for ext in extensions:
-        patterns.append(f"{video_stem}.{lang}{ext}")
-    for ext in hi_extensions:
-        patterns.append(f"{video_stem}.{lang}{ext}")
-    if lang3 != lang:
+    seen = set()
+
+    for alias in aliases:
         for ext in extensions:
-            patterns.append(f"{video_stem}.{lang3}{ext}")
+            p = f"{video_stem}.{alias}{ext}"
+            if p not in seen:
+                patterns.append(p)
+                seen.add(p)
         for ext in hi_extensions:
-            patterns.append(f"{video_stem}.{lang3}{ext}")
+            p = f"{video_stem}.{alias}{ext}"
+            if p not in seen:
+                patterns.append(p)
+                seen.add(p)
+
     for ext in forced:
         patterns.append(f"{video_stem}.{lang}{ext}")
-        if lang3 != lang:
-            patterns.append(f"{video_stem}.{lang3}{ext}")
 
     return patterns
 
