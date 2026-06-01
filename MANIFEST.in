@@ -1,0 +1,2 @@
+recursive-include src/submerge/templates *
+recursive-include src/submerge/static *
