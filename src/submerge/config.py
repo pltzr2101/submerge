@@ -62,6 +62,8 @@ class SubtoolsSettings(BaseSettings):
 
     Environment variables (all prefixed with SUBTOOLS_):
     - SUBTOOLS_PAIRS: Language pairs (required for API), e.g., "fr-pl,en-pl"
+    - SUBTOOLS_MEDIA_ROOT: Root directory for media files, default "/data"
+    - SUBTOOLS_POLL_INTERVAL: Polling interval in seconds for retry, default 60
     - SUBTOOLS_COLOR_BOTTOM: Hex color for bottom subtitle, default "#FFFFFF"
     - SUBTOOLS_COLOR_TOP: Hex color for top subtitle, default "#FFFF00"
     - SUBTOOLS_FONTSIZE: Font size (8-72), default 18
@@ -78,6 +80,10 @@ class SubtoolsSettings(BaseSettings):
     # Paires à générer - env var: SUBTOOLS_PAIRS
     # Using validation_alias to map the env var (prefix is ignored with alias)
     pairs_raw: str = Field(default="", validation_alias="SUBTOOLS_PAIRS")
+
+    # Media scanning
+    media_root: str = "/data"
+    poll_interval: int = 60
 
     # Apparence
     color_bottom: str = "#FFFFFF"

@@ -152,8 +152,8 @@ class TestHookIntegration:
         assert "Hello" in en_pl_content
         assert "Cześć" in en_pl_content
 
-    def test_hook_returns_waiting_when_lang_missing(self, tmp_path: Path):
-        """Hook returns waiting if a language is missing."""
+    def test_hook_returns_polling_when_lang_missing(self, tmp_path: Path):
+        """Hook returns polling and starts background retry if a language is missing."""
         video = tmp_path / "Movie.mkv"
         video.touch()
 
@@ -165,7 +165,7 @@ class TestHookIntegration:
 
         result = process_hook(video, tmp_path / "Movie.fr.srt", "fr", settings)
 
-        assert result.status == "waiting"
+        assert result.status == "polling"
         assert "en" in result.missing
         assert set(result.present) == {"fr", "pl"}
 
@@ -228,13 +228,13 @@ class TestBazarrWorkflow:
 
         settings = get_settings_for_test(pairs="fr-pl")
 
-        # Bazarr downloads FR
+        # Bazarr downloads FR - starts polling
         (tmp_path / "Show.S01E01.fr.srt").write_text(SAMPLE_SRT_FR)
         result1 = process_hook(video, tmp_path / "Show.S01E01.fr.srt", "fr", settings)
-        assert result1.status == "waiting"
+        assert result1.status == "polling"
         assert result1.missing == ["pl"]
 
-        # Bazarr downloads PL
+        # Bazarr downloads PL - merge happens (polling cancelled)
         (tmp_path / "Show.S01E01.pl.srt").write_text(SAMPLE_SRT_PL)
         result2 = process_hook(video, tmp_path / "Show.S01E01.pl.srt", "pl", settings)
         assert result2.status == "merged"
@@ -252,16 +252,16 @@ class TestBazarrWorkflow:
 
         settings = get_settings_for_test(pairs="fr-pl,en-pl")
 
-        # Bazarr downloads FR - waiting (missing pl, en)
+        # Bazarr downloads FR - starts polling (missing pl, en)
         (tmp_path / "Show.S01E01.fr.srt").write_text(SAMPLE_SRT_FR)
         result1 = process_hook(video, tmp_path / "Show.S01E01.fr.srt", "fr", settings)
-        assert result1.status == "waiting"
+        assert result1.status == "polling"
         assert set(result1.missing) == {"pl", "en"}
 
-        # Bazarr downloads EN - waiting (missing pl)
+        # Bazarr downloads EN - still polling (missing pl)
         (tmp_path / "Show.S01E01.en.srt").write_text(SAMPLE_SRT_EN)
         result2 = process_hook(video, tmp_path / "Show.S01E01.en.srt", "en", settings)
-        assert result2.status == "waiting"
+        assert result2.status == "polling"
         assert result2.missing == ["pl"]
 
         # Bazarr downloads PL - merged (all languages)
