@@ -18,6 +18,8 @@ from fastapi import BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -550,8 +552,7 @@ async def api_merge(request: Request):
         from .hook import _cancel_polling
         _cancel_polling(video_path)
 
-        import asyncio as _asyncio
-        loop = _asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         created_files = await loop.run_in_executor(
             None,
             lambda: process_bilingual_merge(video_path, sub_paths, settings),
@@ -756,7 +757,7 @@ def api_queue_remove(entry_id: int):
 
 
 @app.post("/api/queue/{entry_id}/retry")
-def api_queue_retry(entry_id: int):
+async def api_queue_retry(entry_id: int):
     """Retry a queue entry now."""
     from .queue import _get_connection, dequeue, remove_entry
 
@@ -778,7 +779,9 @@ def api_queue_retry(entry_id: int):
         if should_skip_existing(video_path, sub_paths, settings):
             dequeue(video_path, "done", settings=settings)
             return {"status": "skipped", "reason": "already_exists"}
-        created = process_bilingual_merge(video_path, sub_paths, settings)
+        created = await run_in_threadpool(
+            process_bilingual_merge, video_path, sub_paths, settings
+        )
         dequeue(video_path, "done", settings=settings)
         return {"status": "merged", "files": [str(f) for f in created]}
     finally:
@@ -989,11 +992,10 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
             raise HTTPException(status_code=500, detail={"status": "error", "message": "Frame extraction failed"})
 
         from fastapi.responses import FileResponse
-        from starlette.background import BackgroundTask
         return FileResponse(
             tmp_path,
             media_type="image/jpeg",
-            background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+            background=BackgroundTask(Path(tmp_path).unlink, missing_ok=True),
         )
 
     except HTTPException:

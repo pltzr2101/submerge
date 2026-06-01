@@ -98,3 +98,21 @@ class TestValidatePath:
 
         assert exc_info.value.status_code == 400
         assert "absolute path" in str(exc_info.value.detail["message"])
+
+
+class TestAsyncEndpoints:
+    """v2.0.3: Verify async-correctness of blocking endpoints."""
+
+    def test_api_queue_retry_is_async(self):
+        """api_queue_retry must be an async function."""
+        import inspect
+        from submerge.api import api_queue_retry
+        assert inspect.iscoroutinefunction(api_queue_retry)
+
+    def test_background_task_no_lambda(self):
+        """api_frame_extract must use direct method call, not lambda."""
+        import inspect
+        from submerge import api as api_module
+        source = inspect.getsource(api_module.api_frame_extract)
+        assert "BackgroundTask(lambda" not in source
+        assert "BackgroundTask(Path(" in source

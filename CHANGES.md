@@ -1,3 +1,18 @@
+# Submerge v2.0.3 - Residual Fixes
+
+## Fixed
+- **asyncio.get_event_loop() (Fix A):** Replaced with `asyncio.get_running_loop()` in
+  `api_merge` — deprecated in Python 3.10+, DeprecationWarning in 3.12+.
+- **Blocking api_queue_retry (Fix B):** Converted to `async def` with
+  `await run_in_threadpool()` to avoid blocking the uvicorn worker on large subtitle files.
+- **BackgroundTask lambda (Fix C):** Replaced closure lambda with direct method reference
+  `Path(tmp_path).unlink` for safer variable binding.
+
+## Tests
+- 100 passing (98 existing + 2 new: async correctness + lambda check)
+
+---
+
 # Submerge v2.0.2 - Ship-Ready Fixes
 
 ## Fixes
