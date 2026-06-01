@@ -21,7 +21,10 @@ _KNOWN_ALIASES: dict[str, list[str]] = {
     "es": ["es", "spa", "es-ES", "es_ES", "es-MX", "es_MX", "es-419"],
     "it": ["it", "ita", "it-IT", "it_IT"],
     "ja": ["ja", "jpn", "ja-JP", "ja_JP"],
-    "zh": ["zh", "zho", "chi", "zh-CN", "zh_CN", "zh-TW", "zh_TW", "zh-HK", "zh_HK", "zh-Hans", "zh-Hant"],
+    "zh": [
+        "zh", "zho", "chi", "zh-CN", "zh_CN", "zh-TW", "zh_TW",
+        "zh-HK", "zh_HK", "zh-Hans", "zh-Hant",
+    ],
     "ru": ["ru", "rus", "ru-RU", "ru_RU"],
     "pt": ["pt", "por", "pt-BR", "pt_BR", "pt-PT", "pt_PT"],
     "ar": ["ar", "ara", "ar-SA", "ar_SA", "ar-EG", "ar_EG"],

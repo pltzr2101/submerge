@@ -6,7 +6,7 @@ import re
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator, computed_field
+from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ISO 639-1 codes (subset des plus courants, extensible)

@@ -7,14 +7,12 @@ import json
 import logging
 import shutil
 import sys
-import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -23,19 +21,17 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from .config import SubtoolsSettings, get_settings
 from . import __version__
+from .config import SubtoolsSettings, get_settings
 from .hook import (
     InvalidLanguageError,
     ProcessingError,
     check_all_languages_present,
+    find_subtitle_path,
     get_active_polls,
-    get_output_path,
     process_hook,
     start_polling,
-    find_subtitle_path,
 )
-from .merge import MergeConfig, merge_bilingual
 from .scanner import entry_to_dict, find_videos_needing_merge, scan_directory
 
 # Configure logging for the whole app
@@ -66,7 +62,7 @@ class SSEHandler(logging.Handler):
         try:
             msg = self.format(record)
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()  # ensure running in event loop
                 q = _get_log_queue()
                 # Drop oldest if full (non-blocking)
                 if q.full():
@@ -272,7 +268,7 @@ def validate_path(path_str: str, param_name: str, check_media_root: bool = False
         if check_media_root:
             settings = get_settings()
             media_root = Path(settings.media_root).resolve()
-            if not str(resolved_path).startswith(str(media_root) + "/") and str(resolved_path) != str(media_root):
+            if not str(resolved_path).startswith(str(media_root) + "/") and str(resolved_path) != str(media_root):  # noqa: E501
                 raise HTTPException(
                     status_code=400,
                     detail={
@@ -523,7 +519,7 @@ async def api_merge(request: Request):
         body = await request.json()
         video_path_str = body.get("video_path", "")
         if not video_path_str:
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "video_path required"})
+            raise HTTPException(status_code=400, detail={"status": "error", "message": "video_path required"})  # noqa: E501
 
         video_path = validate_path(video_path_str, "video_path")
         settings = _get_effective_settings()
@@ -578,15 +574,13 @@ async def api_sync(request: Request):
         lang = body.get("lang", "")
 
         if not subtitle_path_str:
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "subtitle_path required"})
+            raise HTTPException(status_code=400, detail={"status": "error", "message": "subtitle_path required"})  # noqa: E501
 
         sub_path = validate_path(subtitle_path_str, "subtitle_path")
         settings = _get_effective_settings()
 
         if not sub_path.exists():
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "Subtitle file not found"})
-
-        video_dir = sub_path.parent
+            raise HTTPException(status_code=400, detail={"status": "error", "message": "Subtitle file not found"})  # noqa: E501
 
         # Robust video detection: peel language suffixes from the stem
         video_file = _find_video_for_subtitle(sub_path)
@@ -613,9 +607,14 @@ async def api_sync(request: Request):
         output_path = sub_path.parent / f"{sub_path.stem}.synced{sub_path.suffix}"
 
         try:
-            from .sync import sync_subtitles, sync_subtitles_to_video, FfsubsyncNotFoundError, SyncError
+            from .sync import (
+                FfsubsyncNotFoundError,
+                SyncError,
+                sync_subtitles,
+                sync_subtitles_to_video,
+            )
         except ImportError:
-            return {"status": "error", "message": "ffsubsync not installed. Install: pip install 'submerge[sync]'"}
+            return {"status": "error", "message": "ffsubsync not installed. Install: pip install 'submerge[sync]'"}  # noqa: E501
 
         try:
             if ref_path:
@@ -623,7 +622,7 @@ async def api_sync(request: Request):
             elif video_file:
                 result = sync_subtitles_to_video(video_file, sub_path, output_path)
             else:
-                return {"status": "error", "message": "No reference subtitle or video found for sync"}
+                return {"status": "error", "message": "No reference subtitle or video found for sync"}  # noqa: E501
 
             return {
                 "status": "ok",
@@ -651,7 +650,7 @@ def api_scan(background_tasks: BackgroundTasks):
     """
     settings = _get_effective_settings()
     background_tasks.add_task(_run_scan, settings)
-    return {"status": "started", "message": "Scan running in background, see /logs/stream for progress"}
+    return {"status": "started", "message": "Scan running in background, see /logs/stream for progress"}  # noqa: E501
 
 
 def _run_scan(settings: SubtoolsSettings) -> dict:
@@ -743,13 +742,13 @@ def api_queue_remove(entry_id: int):
     settings = _get_effective_settings()
     conn = _get_connection(settings=settings)
     if conn is None:
-        raise HTTPException(status_code=503, detail={"status": "error", "message": "Queue database unavailable"})
+        raise HTTPException(status_code=503, detail={"status": "error", "message": "Queue database unavailable"})  # noqa: E501
     try:
         row = conn.execute(
             "SELECT video_path FROM pending_merges WHERE id = ?", (entry_id,)
         ).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail={"status": "error", "message": "Entry not found"})
+            raise HTTPException(status_code=404, detail={"status": "error", "message": "Entry not found"})  # noqa: E501
         remove_entry(row[0], settings=settings)
         return {"status": "ok"}
     finally:
@@ -759,18 +758,18 @@ def api_queue_remove(entry_id: int):
 @app.post("/api/queue/{entry_id}/retry")
 async def api_queue_retry(entry_id: int):
     """Retry a queue entry now."""
-    from .queue import _get_connection, dequeue, remove_entry
+    from .queue import _get_connection, dequeue
 
     settings = _get_effective_settings()
     conn = _get_connection(settings=settings)
     if conn is None:
-        raise HTTPException(status_code=503, detail={"status": "error", "message": "Queue database unavailable"})
+        raise HTTPException(status_code=503, detail={"status": "error", "message": "Queue database unavailable"})  # noqa: E501
     try:
         row = conn.execute(
             "SELECT video_path FROM pending_merges WHERE id = ?", (entry_id,)
         ).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail={"status": "error", "message": "Entry not found"})
+            raise HTTPException(status_code=404, detail={"status": "error", "message": "Entry not found"})  # noqa: E501
         video_path = Path(row[0])
         sub_paths = check_all_languages_present(video_path, settings)
         if sub_paths is None:
@@ -920,7 +919,7 @@ def api_presets_get(name: str):
     """Get the style fields for a specific preset."""
     presets = _load_presets()
     if name not in presets:
-        raise HTTPException(status_code=404, detail={"status": "error", "message": "Preset not found"})
+        raise HTTPException(status_code=404, detail={"status": "error", "message": "Preset not found"})  # noqa: E501
     return {"name": name, "styles": presets[name]}
 
 
@@ -932,9 +931,9 @@ async def api_presets_save(request: Request):
         name = body.get("name", "").strip()
         styles = body.get("styles", {})
         if not name:
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "Name required"})
+            raise HTTPException(status_code=400, detail={"status": "error", "message": "Name required"})  # noqa: E501
         if name in _DEFAULT_PRESETS:
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot override built-in preset"})
+            raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot override built-in preset"})  # noqa: E501
         presets = _load_presets()
         presets[name] = styles
         _save_custom_presets(presets)
@@ -949,7 +948,7 @@ async def api_presets_save(request: Request):
 def api_presets_delete(name: str):
     """Delete a custom style preset (built-in presets cannot be deleted)."""
     if name in _DEFAULT_PRESETS:
-        raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"})
+        raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"})  # noqa: E501
     presets = _load_presets()
     if name not in presets:
         raise HTTPException(status_code=404)
@@ -979,7 +978,7 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
 
     video = validate_path(video_path, "video_path")
     if not video.exists():
-        raise HTTPException(status_code=400, detail={"status": "error", "message": "Video not found"})
+        raise HTTPException(status_code=400, detail={"status": "error", "message": "Video not found"})  # noqa: E501
 
     tmp_path = None
     try:
@@ -993,7 +992,7 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode != 0 or not Path(tmp_path).exists():
-            raise HTTPException(status_code=500, detail={"status": "error", "message": "Frame extraction failed"})
+            raise HTTPException(status_code=500, detail={"status": "error", "message": "Frame extraction failed"})  # noqa: E501
 
         from fastapi.responses import FileResponse
         return FileResponse(

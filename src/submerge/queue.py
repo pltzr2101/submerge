@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,7 +50,10 @@ def _get_db_path(settings: SubtoolsSettings | None = None) -> Path:
     return data_dir / "queue.db"
 
 
-def _get_connection(db_path: Path | None = None, settings: SubtoolsSettings | None = None) -> sqlite3.Connection | None:
+def _get_connection(
+    db_path: Path | None = None,
+    settings: SubtoolsSettings | None = None,
+) -> sqlite3.Connection | None:
     """Get a connection to the queue database.
 
     Returns None if the database cannot be opened (e.g., readonly filesystem).
@@ -152,7 +154,12 @@ def enqueue(video_path: str | Path, settings: SubtoolsSettings | None = None) ->
         conn.close()
 
 
-def dequeue(video_path: str | Path, status: str = "done", error_msg: str | None = None, settings: SubtoolsSettings | None = None) -> None:
+def dequeue(
+    video_path: str | Path,
+    status: str = "done",
+    error_msg: str | None = None,
+    settings: SubtoolsSettings | None = None,
+) -> None:
     """Mark a queue entry as done or failed.
 
     Args:

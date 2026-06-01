@@ -69,6 +69,7 @@ class TestConfigValidationAtStartup:
         get_settings.cache_clear()
 
         import importlib
+
         import submerge.api
         importlib.reload(submerge.api)
 
@@ -78,7 +79,7 @@ class TestConfigValidationAtStartup:
         # /hook should return 503 when pairs not configured
         from fastapi.testclient import TestClient
         client = TestClient(submerge.api.app)
-        resp = client.post("/hook", data={"video": "/data/test.mkv", "subtitle": "/data/test.de.srt", "lang": "de"})
+        resp = client.post("/hook", data={"video": "/data/test.mkv", "subtitle": "/data/test.de.srt", "lang": "de"})  # noqa: E501
         assert resp.status_code == 503
         assert "not configured" in resp.json()["detail"]["message"]
 
@@ -90,8 +91,9 @@ class TestValidatePath:
 
     def test_rejects_relative_path(self):
         """Rejects relative paths."""
-        from submerge.api import validate_path
         from fastapi import HTTPException
+
+        from submerge.api import validate_path
 
         with pytest.raises(HTTPException) as exc_info:
             validate_path("relative/path.mkv", "video")
@@ -106,12 +108,14 @@ class TestAsyncEndpoints:
     def test_api_queue_retry_is_async(self):
         """api_queue_retry must be an async function."""
         import inspect
+
         from submerge.api import api_queue_retry
         assert inspect.iscoroutinefunction(api_queue_retry)
 
     def test_background_task_no_lambda(self):
         """api_frame_extract must use direct method call, not lambda."""
         import inspect
+
         from submerge import api as api_module
         source = inspect.getsource(api_module.api_frame_extract)
         assert "BackgroundTask(lambda" not in source

@@ -121,7 +121,7 @@ class TestExtractCommand:
         ])
 
         assert result.exit_code == 1
-        assert "ffmpeg failed" in result.output.lower() or "extraction error" in result.output.lower()
+        assert "ffmpeg failed" in result.output.lower() or "extraction error" in result.output.lower()  # noqa: E501
 
     @patch("submerge.cli.extract_subtitles")
     def test_shows_error_when_probe_fails(self, mock_extract, runner, tmp_path: Path):
@@ -178,7 +178,9 @@ class TestSyncCommand:
 class TestMergeCommand:
     """Tests for merge command."""
 
-    def test_creates_ass_file(self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path):
+    def test_creates_ass_file(
+        self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path,
+    ):
         """merge creates an ASS file."""
         output = tmp_path / "output.ass"
 
@@ -192,7 +194,9 @@ class TestMergeCommand:
         assert result.exit_code == 0
         assert output.exists()
 
-    def test_rejects_invalid_color(self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path):
+    def test_rejects_invalid_color(
+        self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path,
+    ):
         """merge rejects invalid colors."""
         result = runner.invoke(main, [
             "merge",
@@ -205,7 +209,9 @@ class TestMergeCommand:
         assert result.exit_code != 0
         assert "invalid" in result.output.lower()
 
-    def test_accepts_layout_option(self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path):
+    def test_accepts_layout_option(
+        self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path,
+    ):
         """merge accepts --layout stacked."""
         output = tmp_path / "output.ass"
 

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from submerge.config import get_settings_for_test
 from submerge.scanner import (
     _is_video_file,

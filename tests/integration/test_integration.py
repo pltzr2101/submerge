@@ -9,11 +9,9 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-
 from submerge.config import get_settings_for_test
 from submerge.hook import process_hook
 from submerge.merge import MergeConfig, merge_bilingual
-
 
 # Realistic subtitle fixtures
 SAMPLE_SRT_FR = """1

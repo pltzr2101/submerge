@@ -15,7 +15,6 @@ from submerge.extract import SubtitleExtractionError, extract_subtitles
 from submerge.probe import ProbeError, list_subtitle_tracks
 from submerge.sync import FfsubsyncNotFoundError, SyncError, sync_subtitles
 
-
 # =============================================================================
 # Tests probe.py
 # =============================================================================

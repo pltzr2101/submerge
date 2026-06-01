@@ -8,7 +8,6 @@ import pytest
 
 from submerge.config import get_settings_for_test
 from submerge.queue import (
-    QueueEntry,
     dequeue,
     enqueue,
     get_all_entries,

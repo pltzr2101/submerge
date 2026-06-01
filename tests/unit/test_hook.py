@@ -130,7 +130,7 @@ class TestMergeConfigExpanded:
         ko_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\nWorld\n")
 
         mv = __import__("submerge.hook", fromlist=["merge_bilingual"])
-        with patch.object(mv, "merge_bilingual") as mock_merge:
+        with patch.object(mv, "merge_bilingual") as mock_merge:  # noqa: F841
             process_bilingual_merge(video, {"de": de_sub, "ko": ko_sub}, settings)
 
             assert mock_merge.called
@@ -169,7 +169,7 @@ class TestMergeConfigExpanded:
         ko_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\nWorld\n")
 
         mv = __import__("submerge.hook", fromlist=["merge_bilingual"])
-        with patch.object(mv, "merge_bilingual") as mock_merge:
+        with patch.object(mv, "merge_bilingual") as mock_merge:  # noqa: F841
             process_bilingual_merge(video, {"de": de_sub, "ko": ko_sub}, settings)
             assert mock_merge.called
             config = mock_merge.call_args[0][3]
@@ -187,7 +187,7 @@ class TestPollingQueueInteraction:
         """Polling worker calls dequeue after successful merge."""
         import submerge.config as cfg_mod
         from submerge.hook import process_bilingual_merge
-        from submerge.queue import enqueue, dequeue
+        from submerge.queue import dequeue, enqueue
 
         settings = cfg_mod.SubtoolsSettings(SUBTOOLS_PAIRS="de-ko")
         video = tmp_path / "Movie.mkv"
@@ -202,7 +202,7 @@ class TestPollingQueueInteraction:
         enqueue(video, settings)
 
         mv = __import__("submerge.hook", fromlist=["merge_bilingual"])
-        with patch.object(mv, "merge_bilingual") as mock_merge:
+        with patch.object(mv, "merge_bilingual") as mock_merge:  # noqa: F841
             process_bilingual_merge(video, {"de": de_sub, "ko": ko_sub}, settings)
             dequeue(video, "done", settings=settings)
 
@@ -213,11 +213,11 @@ class TestPollingQueueInteraction:
 
     def test_queue_skips_when_polling_active(self, tmp_path: Path):
         """Queue worker skips entries that are being polled."""
+        import threading
+
         import submerge.config as cfg_mod
         from submerge.hook import get_polling_jobs
         from submerge.queue import enqueue, process_queue
-
-        import threading
         settings = cfg_mod.SubtoolsSettings(SUBTOOLS_PAIRS="de-ko")
         video = tmp_path / "Movie.mkv"
         video.touch()
