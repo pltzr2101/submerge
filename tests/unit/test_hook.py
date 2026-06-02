@@ -46,6 +46,58 @@ class TestFindSubtitlePath:
         result = find_subtitle_path(video, "fr")
         assert result == regular
 
+    def test_sdh_track_preference(self, tmp_path: Path):
+        """Prefers normal .srt over .sdh.srt when both exist."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+        normal = tmp_path / "Movie.de.srt"
+        normal.touch()
+        sdh_sub = tmp_path / "Movie.de.sdh.srt"
+        sdh_sub.touch()
+
+        result = find_subtitle_path(video, "de")
+        assert result == normal
+
+    def test_sdh_fallback(self, tmp_path: Path):
+        """Falls back to .sdh.srt when no normal .srt exists."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+        sdh_sub = tmp_path / "Movie.de.sdh.srt"
+        sdh_sub.touch()
+
+        result = find_subtitle_path(video, "de")
+        assert result == sdh_sub
+
+    def test_cc_track_fallback(self, tmp_path: Path):
+        """Falls back to .cc.srt when no normal .srt exists."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+        cc_sub = tmp_path / "Movie.de.cc.srt"
+        cc_sub.touch()
+
+        result = find_subtitle_path(video, "de")
+        assert result == cc_sub
+
+    def test_forced_track_fallback(self, tmp_path: Path):
+        """Falls back to .forced.srt when no normal .srt exists."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+        forced_sub = tmp_path / "Movie.de.forced.srt"
+        forced_sub.touch()
+
+        result = find_subtitle_path(video, "de")
+        assert result == forced_sub
+
+    def test_case_insensitive_hi_match(self, tmp_path: Path):
+        """Finds .HI.srt via case-insensitive fallback scan."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+        hi_sub = tmp_path / "Movie.de.HI.srt"
+        hi_sub.touch()
+
+        result = find_subtitle_path(video, "de")
+        assert result == hi_sub
+
 
 class TestProcessHook:
     """Tests for process_hook - error handling."""

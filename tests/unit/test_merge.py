@@ -124,3 +124,30 @@ class TestMergeConfig:
         subs = pysubs2.load(str(output))
         assert subs.styles["bottom"].fontsize == 22
         assert subs.styles["top"].fontsize == 16
+
+
+class TestDeduplication:
+    """Tests for event deduplication in merge_bilingual."""
+
+    def test_deduplicate_ass_events(self, tmp_path: Path, sample_srt_pl: Path):
+        """Duplicate events in input are collapsed to one in output."""
+        # Create an SRT with two identical events at the same timestamp
+        dup_srt = tmp_path / "dup.srt"
+        dup_srt.write_text(
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:01,000 --> 00:00:02,000\nHello\n"
+        )
+        output = tmp_path / "output.ass"
+
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        merge_bilingual(dup_srt, sample_srt_pl, output, config)
+
+        subs = pysubs2.load(str(output))
+        # Only one "Hello" event should remain for bottom style
+        bottom_events = [e for e in subs if e.style == "bottom"]
+        hello_events = [e for e in bottom_events if e.plaintext == "Hello"]
+        assert len(hello_events) == 1

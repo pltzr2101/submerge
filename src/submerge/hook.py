@@ -65,6 +65,10 @@ def _get_lang_patterns(video_stem: str, lang: str) -> list[str]:
     Handles 2-letter (ISO 639-1), 3-letter (ISO 639-2), and locale-style
     codes that Bazarr/Lingarr might use (e.g., de, deu, ger, de-DE).
 
+    Normal tracks (.srt, .ass) are listed first; SDH/HI/CC/forced
+    variants are listed after all normal patterns so that
+    ``find_subtitle_path`` picks the regular track when both exist.
+
     Args:
         video_stem: Video filename stem (without extension)
         lang: ISO 639-1 2-letter language code
@@ -74,11 +78,23 @@ def _get_lang_patterns(video_stem: str, lang: str) -> list[str]:
     """
     aliases = get_all_aliases(lang)
     extensions = [".srt", ".ass"]
-    hi_extensions = [".hi.srt", ".hi.ass"]
-    forced = [".forced.srt", ".forced.ass"]
+    # SDH (Subtitles for Deaf/Hard-of-hearing), HI (Hearing Impaired),
+    # CC (Closed Captions), forced (Forced Narrative) — all are
+    # deprioritised variants that should only be used when no normal
+    # subtitle track exists.
+    variant_extensions = [
+        ".hi.srt",
+        ".hi.ass",
+        ".sdh.srt",
+        ".sdh.ass",
+        ".cc.srt",
+        ".cc.ass",
+        ".forced.srt",
+        ".forced.ass",
+    ]
 
-    patterns = []
-    seen = set()
+    patterns: list[str] = []
+    seen: set[str] = set()
 
     for alias in aliases:
         for ext in extensions:
@@ -86,14 +102,13 @@ def _get_lang_patterns(video_stem: str, lang: str) -> list[str]:
             if p not in seen:
                 patterns.append(p)
                 seen.add(p)
-        for ext in hi_extensions:
+
+    for alias in aliases:
+        for ext in variant_extensions:
             p = f"{video_stem}.{alias}{ext}"
             if p not in seen:
                 patterns.append(p)
                 seen.add(p)
-
-    for ext in forced:
-        patterns.append(f"{video_stem}.{lang}{ext}")
 
     return patterns
 
@@ -101,8 +116,14 @@ def _get_lang_patterns(video_stem: str, lang: str) -> list[str]:
 def find_subtitle_path(video_path: Path, lang: str) -> Path | None:
     """Find subtitle file for a language.
 
-    Searches in order: .srt, .ass, .hi.srt, .hi.ass
+    Searches in priority order:
+    1. Normal tracks (.srt, .ass) for any known alias
+    2. SDH/HI/CC/forced variants (.hi.srt, .sdh.srt, .cc.srt, .forced.srt)
+       only when no normal track exists
+
     Also tries 3-letter ISO 639-2 codes (e.g., 'deu' for 'de').
+    Falls back to a case-insensitive directory scan so that files named
+    ``Movie.de.HI.srt`` or ``Movie.DE.SDH.srt`` are still found.
 
     Args:
         video_path: Path to video file
@@ -121,6 +142,42 @@ def find_subtitle_path(video_path: Path, lang: str) -> Path | None:
         if path.exists():
             logger.debug(f"Found: {path}")
             return path
+
+    # Case-insensitive fallback: scan directory for files matching
+    # ``{video_stem}.*`` and classify them by suffix priority.
+    aliases = get_all_aliases(lang)
+    alias_set = {a.lower() for a in aliases}
+    variant_suffixes = {"hi", "sdh", "cc", "forced"}
+
+    candidates: list[Path] = []
+    try:
+        for entry in video_dir.iterdir():
+            if not entry.is_file():
+                continue
+            name = entry.name
+            if not name.lower().startswith(video_stem.lower() + "."):
+                continue
+            # Extract the part after the video stem
+            rest = name[len(video_stem) + 1 :].lower()
+            # Split into parts: e.g., "de.hi.srt" -> ["de", "hi", "srt"]
+            parts = rest.rsplit(".", 2)
+            if len(parts) < 2:
+                continue
+            # Check if any part is a known alias
+            alias_match = any(p in alias_set for p in parts)
+            if not alias_match:
+                continue
+            # File is relevant — classify as normal or variant
+            has_variant = any(p in variant_suffixes for p in parts)
+            candidates.append((0 if not has_variant else 1, entry))
+    except OSError:
+        pass
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0])
+        best = candidates[0][1]
+        logger.debug(f"Found (case-insensitive fallback): {best}")
+        return best
 
     logger.debug(f"Not found: {lang} for {video_stem}")
     return None

@@ -259,6 +259,27 @@ def merge_bilingual(
     # events at the same timestamp (ensures consistent rendering order)
     merged.events.sort(key=lambda e: (e.start, 0 if e.style == "top" else 1))
 
+    # Deduplicate events with identical (start, end, style, text) —
+    # can happen when the same language track appears in both a normal
+    # and an SDH/HI variant that was accidentally merged.
+    seen: set[tuple[int, int, str, str]] = set()
+    unique_events: list = []
+    for event in merged.events:
+        key = (event.start, event.end, event.style, event.plaintext)
+        if key in seen:
+            logger.warning(
+                f"Deduplicated duplicate event: "
+                f"start={event.start}, end={event.end}, "
+                f"style={event.style}, text={event.plaintext!r}"
+            )
+        else:
+            seen.add(key)
+            unique_events.append(event)
+    removed = len(merged.events) - len(unique_events)
+    if removed:
+        logger.info(f"Deduplication removed {removed} duplicate event(s)")
+    merged.events = unique_events
+
     # Save as ASS
     output_path.parent.mkdir(parents=True, exist_ok=True)
     merged.save(str(output_path))
