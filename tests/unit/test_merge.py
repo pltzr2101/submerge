@@ -83,7 +83,7 @@ class TestMergeConfig:
         assert config.fontsize == 20
         assert config.fontsize_bottom == 20
         assert config.fontsize_top == 18
-        assert config.font_name == "Roboto"
+        assert config.font_name == ""
         assert config.outline == 2.0
         assert config.outline_bottom == 2.0
         assert config.outline_top == 2.0
