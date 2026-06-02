@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -153,7 +154,10 @@ def _runtime_settings_to_response() -> dict[str, Any]:
         "poll_interval": settings.poll_interval,
         "bottom_color": settings.bottom_color,
         "top_color": settings.top_color,
-        "fontsize": settings.fontsize,
+        "bottom_fontsize": settings.bottom_fontsize,
+        "top_fontsize": settings.top_fontsize,
+        "bottom_outline": settings.bottom_outline,
+        "top_outline": settings.top_outline,
         "layout": settings.layout,
     }
 
@@ -224,7 +228,8 @@ def create_app() -> FastAPI:
             bucket[:] = [t for t in bucket if now - t < 60]
             if not bucket:
                 del _rate_limits[client]
-                return await call_next(request)
+            else:
+                _rate_limits[client] = bucket
             bucket.append(now)
             _rate_limits[client] = bucket
             if len(bucket) > rate_limit_rpm:
@@ -249,7 +254,6 @@ def create_app() -> FastAPI:
                             headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
                             content="Authentication required",
                         )
-                    import base64
                     try:
                         decoded = base64.b64decode(authorization[6:]).decode()
                         provided_user, provided_pass = decoded.split(":", 1)
@@ -281,6 +285,18 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
+# Module-level batch merge semaphore — must be created inside the event loop,
+# so use a lazy getter. This caps total concurrent batch merge workers across
+# all requests, not just per-request.
+_batch_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_batch_semaphore() -> asyncio.Semaphore:
+    global _batch_semaphore
+    if _batch_semaphore is None:
+        _batch_semaphore = asyncio.Semaphore(4)
+    return _batch_semaphore
+
 
 def validate_path(path_str: str, param_name: str, check_media_root: bool = False) -> Path:
     """Validate and resolve a path.
@@ -311,7 +327,7 @@ def validate_path(path_str: str, param_name: str, check_media_root: bool = False
 
         # Enforce media_root boundary for user-facing endpoints
         if check_media_root:
-            settings = get_settings()
+            settings = _get_effective_settings()
             media_root = Path(settings.media_root).resolve()
             if not resolved_path.is_relative_to(media_root):
                 raise HTTPException(
@@ -658,10 +674,8 @@ async def api_batch_merge(request: Request):
 
         from .hook import check_all_languages_present, process_bilingual_merge, should_skip_existing
 
-        _batch_semaphore = asyncio.Semaphore(4)
-
         async def _merge_one(video_path: Path) -> dict[str, Any]:
-            async with _batch_semaphore:
+            async with _get_batch_semaphore():
                 return await asyncio.get_running_loop().run_in_executor(
                     None, _check_one, video_path
                 )
@@ -734,7 +748,7 @@ async def api_sync(request: Request):
         if not subtitle_path_str:
             raise HTTPException(status_code=400, detail={"status": "error", "message": "subtitle_path required"})  # noqa: E501
 
-        sub_path = validate_path(subtitle_path_str, "subtitle_path")
+        sub_path = validate_path(subtitle_path_str, "subtitle_path", check_media_root=True)
         settings = _get_effective_settings()
 
         if not sub_path.exists():
@@ -742,13 +756,6 @@ async def api_sync(request: Request):
 
         # Robust video detection: peel language suffixes from the stem
         video_file = _find_video_for_subtitle(sub_path)
-        if video_file is None:
-            # Fallback: try the old rsplit method
-            for ext in (".mkv", ".mp4", ".avi", ".m4v"):
-                candidate = sub_path.parent / (sub_path.stem.rsplit(".", 1)[0] + ext)
-                if candidate.exists():
-                    video_file = candidate
-                    break
 
         # Try to find reference subtitle in another language
         ref_path = None
@@ -988,11 +995,28 @@ async def api_settings(request: Request):
                 if color:
                     _runtime_settings["top_color"] = color
 
+            # legacy — sets fontsize; prefer bottom_fontsize/top_fontsize
             if "fontsize" in body:
                 try:
                     val = int(body["fontsize"])
                     if 8 <= val <= 72:
                         _runtime_settings["fontsize"] = val
+                except (ValueError, TypeError):
+                    pass
+
+            if "bottom_fontsize" in body:
+                try:
+                    val = int(body["bottom_fontsize"])
+                    if 8 <= val <= 72:
+                        _runtime_settings["bottom_fontsize"] = val
+                except (ValueError, TypeError):
+                    pass
+
+            if "top_fontsize" in body:
+                try:
+                    val = int(body["top_fontsize"])
+                    if 8 <= val <= 72:
+                        _runtime_settings["top_fontsize"] = val
                 except (ValueError, TypeError):
                     pass
 
@@ -1412,7 +1436,7 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
     import subprocess
     import tempfile
 
-    video = validate_path(video_path, "video_path")
+    video = validate_path(video_path, "video_path", check_media_root=True)
     if not video.exists():
         raise HTTPException(status_code=400, detail={"status": "error", "message": "Video not found"})  # noqa: E501
 

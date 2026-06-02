@@ -10,9 +10,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Codecs de sous-titres texte supportés
+# Supported text subtitle codecs
 TEXT_CODECS = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text"}
-# Codecs de sous-titres image (non supportés)
+# Image subtitle codecs (not supported)
 IMAGE_CODECS = {"hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub", "pgssub"}
 
 

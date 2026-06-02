@@ -19,7 +19,14 @@ class InvalidSubtitleError(Exception):
 
 @dataclass
 class MergeConfig:
-    """Configuration for bilingual merge."""
+    """Configuration for bilingual merge.
+
+    Per-style fields (fontsize_bottom, fontsize_top, outline_bottom,
+    outline_top) are used directly by merge_bilingual. The generic
+    ``fontsize`` and ``outline`` fields are **deprecated** and only
+    serve as fallback values when the corresponding per-style field is
+    zero/falsy. Prefer setting the per-style fields explicitly.
+    """
 
     color_bottom: str = "#FFFFFF"  # White
     color_top: str = "#FFFF00"  # Yellow
@@ -62,7 +69,7 @@ def _hex_to_color(hex_color: str) -> Color:
     g = int(hex_color[2:4], 16)
     b = int(hex_color[4:6], 16)
 
-    # pysubs2 Color: (r, g, b, a) où a=0 signifie opaque
+    # pysubs2 Color: (r, g, b, a) where a=0 means opaque
     return Color(r, g, b, 0)
 
 

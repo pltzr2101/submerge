@@ -7,6 +7,8 @@ Tests removed: mock overload on endpoints (tested in integration).
 from __future__ import annotations
 
 import logging
+import time
+from unittest.mock import patch
 
 import pytest
 
@@ -283,5 +285,49 @@ class TestBatchMerge:
         for r in data["results"]:
             assert "video" in r
             assert "status" in r
+
+        get_settings.cache_clear()
+
+
+class TestRateLimitNotBypassedAfterIdle:
+    """After a 61s idle window, the next request must record its timestamp
+    and the (rpm+1)th request within the new 60s window must return 429."""
+
+    def test_second_window_hits_limit(self, monkeypatch):
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl")
+        monkeypatch.setenv("SUBTOOLS_RATE_LIMIT_RPM", "2")
+        from submerge.config import get_settings
+        get_settings.cache_clear()
+
+        # Use the module-level app (routes are registered there, not on create_app())
+        from submerge.api import app
+        from starlette.testclient import TestClient
+        client = TestClient(app)
+
+        t0 = 1_000_000_000.0  # High enough to trim all real entries
+
+        # Window 1: RPM=2, first 2 pass, 3rd gets 429
+        with patch("time.monotonic", return_value=t0):
+            r1 = client.get("/api/polls")
+            assert r1.status_code == 200
+            r2 = client.get("/api/polls")
+            assert r2.status_code == 200
+            r3 = client.get("/api/polls")
+            assert r3.status_code == 429, f"Expected 429, got {r3.status_code}"
+
+        # Window 2 (t0+61): old timestamps trimmed to empty.
+        # Bug fix: timestamp for first request in new window MUST be recorded
+        # so the limiter still works after idle periods.
+        t1 = t0 + 61.0
+        with patch("time.monotonic", return_value=t1):
+            r4 = client.get("/api/polls")
+            assert r4.status_code == 200, f"Expected 200, got {r4.status_code}"
+            r5 = client.get("/api/polls")
+            assert r5.status_code == 200, f"Expected 200, got {r5.status_code}"
+            r6 = client.get("/api/polls")
+            assert r6.status_code == 429, (
+                f"Expected 429 in second window, got {r6.status_code} "
+                f"(bug: bucket was empty after idle trim so timestamp was never recorded)"
+            )
 
         get_settings.cache_clear()

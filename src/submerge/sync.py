@@ -11,7 +11,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Formats de sous-titres supportés par ffsubsync
+# Subtitle formats supported by ffsubsync
 SUPPORTED_FORMATS = {".srt", ".ass", ".ssa", ".vtt"}
 
 
