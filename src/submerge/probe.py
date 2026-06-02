@@ -74,10 +74,13 @@ def list_subtitle_tracks(video_path: str | Path) -> list[SubtitleTrack]:
 
     cmd = [
         "ffprobe",
-        "-v", "quiet",
-        "-print_format", "json",
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
         "-show_streams",
-        "-select_streams", "s",
+        "-select_streams",
+        "s",
         str(video_path),
     ]
 
@@ -99,9 +102,7 @@ def list_subtitle_tracks(video_path: str | Path) -> list[SubtitleTrack]:
 
     streams = data.get("streams", [])
     if not streams:
-        raise NoSubtitleTracksError(
-            f"No subtitle tracks found in {video_path.name}"
-        )
+        raise NoSubtitleTracksError(f"No subtitle tracks found in {video_path.name}")
 
     tracks: list[SubtitleTrack] = []
     image_tracks_found = False
@@ -150,9 +151,7 @@ def list_subtitle_tracks(video_path: str | Path) -> list[SubtitleTrack]:
     return tracks
 
 
-def find_track_by_language(
-    tracks: list[SubtitleTrack], language: str
-) -> SubtitleTrack | None:
+def find_track_by_language(tracks: list[SubtitleTrack], language: str) -> SubtitleTrack | None:
     """Find the first text track matching a language.
 
     Args:

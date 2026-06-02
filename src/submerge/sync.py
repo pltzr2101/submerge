@@ -36,9 +36,7 @@ def _get_ffsubsync_command() -> str:
     """Return ffsubsync path or raise an error."""
     ffs_path = shutil.which("ffs") or shutil.which("ffsubsync")
     if ffs_path is None:
-        raise FfsubsyncNotFoundError(
-            "ffsubsync not found. Install it: uv add ffsubsync"
-        )
+        raise FfsubsyncNotFoundError("ffsubsync not found. Install it: uv add ffsubsync")
     return ffs_path
 
 
@@ -46,8 +44,7 @@ def _validate_subtitle_format(path: Path) -> None:
     """Validate that file is a supported subtitle format."""
     if path.suffix.lower() not in SUPPORTED_FORMATS:
         raise SyncError(
-            f"Unsupported format: {path.suffix}. "
-            f"Supported formats: {', '.join(SUPPORTED_FORMATS)}"
+            f"Unsupported format: {path.suffix}. Supported formats: {', '.join(SUPPORTED_FORMATS)}"
         )
 
 
@@ -85,29 +82,23 @@ def sync_subtitles(
     cmd = [
         ffs_cmd,
         str(reference_path),
-        "-i", str(input_path),
-        "-o", str(output_path),
+        "-i",
+        str(input_path),
+        "-o",
+        str(output_path),
     ]
 
     logger.debug(f"Executing: {' '.join(cmd)}")
 
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, timeout=300
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
     except subprocess.TimeoutExpired:
-        raise SyncError(
-            "ffsubsync timeout - synchronization is taking too long"
-        )
+        raise SyncError("ffsubsync timeout - synchronization is taking too long")
     except subprocess.CalledProcessError as e:
-        raise SyncError(
-            f"ffsubsync failed:\n{e.stderr}"
-        ) from e
+        raise SyncError(f"ffsubsync failed:\n{e.stderr}") from e
 
     if not output_path.exists():
-        raise SyncError(
-            f"Output file was not created: {output_path}"
-        )
+        raise SyncError(f"Output file was not created: {output_path}")
 
     # Parse offset from output (if available)
     offset_ms = _parse_offset(result.stdout + result.stderr)
@@ -166,8 +157,10 @@ def sync_subtitles_to_video(
     cmd = [
         ffs_cmd,
         str(video_path),
-        "-i", str(input_path),
-        "-o", str(output_path),
+        "-i",
+        str(input_path),
+        "-o",
+        str(output_path),
     ]
 
     logger.debug(f"Executing: {' '.join(cmd)}")
@@ -175,22 +168,14 @@ def sync_subtitles_to_video(
 
     try:
         # Longer timeout for audio analysis
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, timeout=600
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)
     except subprocess.TimeoutExpired:
-        raise SyncError(
-            "ffsubsync timeout - audio analysis is taking too long"
-        )
+        raise SyncError("ffsubsync timeout - audio analysis is taking too long")
     except subprocess.CalledProcessError as e:
-        raise SyncError(
-            f"ffsubsync failed:\n{e.stderr}"
-        ) from e
+        raise SyncError(f"ffsubsync failed:\n{e.stderr}") from e
 
     if not output_path.exists():
-        raise SyncError(
-            f"Output file was not created: {output_path}"
-        )
+        raise SyncError(f"Output file was not created: {output_path}")
 
     # Parse offset from output (if available)
     offset_ms = _parse_offset(result.stdout + result.stderr)

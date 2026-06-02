@@ -62,7 +62,6 @@ def scan_directory(
     video_files.sort()
 
     for video_path in video_files:
-
         rel_path = video_path.relative_to(root)
         parent_dir = str(rel_path.parent) if str(rel_path.parent) != "." else "/"
 
@@ -91,15 +90,17 @@ def scan_directory(
         # Determine overall status
         all_langs_present = all(s["present"] for s in subtitle_status.values())
 
-        entries.append(MediaEntry(
-            video_path=str(video_path),
-            video_name=video_path.name,
-            parent_dir=parent_dir,
-            subtitle_status=subtitle_status,
-            merged_status=merged_status,
-            all_langs_present=all_langs_present,
-            all_merged=all_merged,
-        ))
+        entries.append(
+            MediaEntry(
+                video_path=str(video_path),
+                video_name=video_path.name,
+                parent_dir=parent_dir,
+                subtitle_status=subtitle_status,
+                merged_status=merged_status,
+                all_langs_present=all_langs_present,
+                all_merged=all_merged,
+            )
+        )
 
     return entries
 
@@ -118,10 +119,7 @@ def find_videos_needing_merge(
         List of MediaEntry for videos needing merge
     """
     entries = scan_directory(root_dir, settings)
-    return [
-        e for e in entries
-        if e.all_langs_present and not e.all_merged
-    ]
+    return [e for e in entries if e.all_langs_present and not e.all_merged]
 
 
 def entry_to_dict(entry: MediaEntry, settings: SubtoolsSettings | None = None) -> dict[str, Any]:

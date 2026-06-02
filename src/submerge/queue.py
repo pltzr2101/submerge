@@ -102,6 +102,7 @@ def enqueue(video_path: str | Path, settings: SubtoolsSettings | None = None) ->
     now = datetime.now(timezone.utc).isoformat()
 
     from .hook import get_present_and_missing
+
     present, missing = get_present_and_missing(video, settings)
 
     conn = _get_connection(settings=settings)
@@ -181,9 +182,7 @@ def remove_entry(video_path: str | Path, settings: SubtoolsSettings | None = Non
         conn.close()
 
 
-def get_video_path_by_id(
-    entry_id: int, settings: SubtoolsSettings | None = None
-) -> str | None:
+def get_video_path_by_id(entry_id: int, settings: SubtoolsSettings | None = None) -> str | None:
     """Return video_path for a queue entry by id, or None if not found."""
     conn = _get_connection(settings=settings)
     if conn is None:
@@ -310,6 +309,7 @@ def process_queue(
 
         # Check if all languages are present now
         from .hook import check_all_languages_present, should_skip_existing
+
         sub_paths = check_all_languages_present(video_path, settings)
         if sub_paths is None:
             # Update the missing/present info
@@ -319,6 +319,7 @@ def process_queue(
 
         # Skip if polling worker is already handling this video
         from .hook import get_active_polls
+
         if str(video_path.resolve()) in get_active_polls():
             still_pending += 1
             continue
@@ -393,9 +394,7 @@ def start_queue_worker(
                 logger.error(f"Queue worker error: {e}")
         logger.info("Queue worker stopped")
 
-    _worker_thread = threading.Thread(
-        target=_worker, daemon=True, name="submerge-queue-worker"
-    )
+    _worker_thread = threading.Thread(target=_worker, daemon=True, name="submerge-queue-worker")
     _worker_thread.start()
 
 

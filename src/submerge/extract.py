@@ -76,48 +76,38 @@ def extract_subtitles(
 
     # Calculate relative index for -map 0:s:N
     # ffmpeg uses an index relative to subtitle tracks, not absolute index
-    sub_relative_index = next(
-        i for i, t in enumerate(tracks) if t.index == selected_track.index
-    )
+    sub_relative_index = next(i for i, t in enumerate(tracks) if t.index == selected_track.index)
 
     cmd = [
         "ffmpeg",
         "-y",  # Overwrite
-        "-i", str(video_path),
-        "-map", f"0:s:{sub_relative_index}",
-        "-c:s", "srt",  # Convertir en SRT
+        "-i",
+        str(video_path),
+        "-map",
+        f"0:s:{sub_relative_index}",
+        "-c:s",
+        "srt",  # Convertir en SRT
         str(output_path),
     ]
 
     logger.debug(f"Executing: {' '.join(cmd)}")
 
     try:
-        subprocess.run(
-            cmd, capture_output=True, text=True, check=True, timeout=120
-        )
+        subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
     except subprocess.TimeoutExpired:
-        raise SubtitleExtractionError(
-            "ffmpeg timeout - file may be corrupted"
-        )
+        raise SubtitleExtractionError("ffmpeg timeout - file may be corrupted")
     except subprocess.CalledProcessError as e:
-        raise SubtitleExtractionError(
-            f"ffmpeg failed: {e.stderr}"
-        ) from e
+        raise SubtitleExtractionError(f"ffmpeg failed: {e.stderr}") from e
     except FileNotFoundError:
-        raise SubtitleExtractionError(
-            "ffmpeg not found. Install ffmpeg: brew install ffmpeg"
-        )
+        raise SubtitleExtractionError("ffmpeg not found. Install ffmpeg: brew install ffmpeg")
 
     if not output_path.exists():
-        raise SubtitleExtractionError(
-            f"Output file was not created: {output_path}"
-        )
+        raise SubtitleExtractionError(f"Output file was not created: {output_path}")
 
     # Check that file is not empty
     if output_path.stat().st_size == 0:
         raise SubtitleExtractionError(
-            f"Extracted file is empty. Track #{selected_track.index} "
-            "may be an unsupported format."
+            f"Extracted file is empty. Track #{selected_track.index} may be an unsupported format."
         )
 
     logger.info(f"Subtitles extracted: {output_path}")

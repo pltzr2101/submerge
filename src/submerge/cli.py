@@ -107,19 +107,22 @@ def list_tracks_cmd(video: Path) -> None:
 @main.command("extract")
 @click.argument("video", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     required=True,
     help="Output subtitle file (e.g., output.srt)",
 )
 @click.option(
-    "--track", "-t",
+    "--track",
+    "-t",
     type=int,
     default=None,
     help="Track index to extract (from list-tracks output)",
 )
 @click.option(
-    "--lang", "-l",
+    "--lang",
+    "-l",
     type=str,
     default=None,
     help="Language code to extract (e.g., en, eng, fr)",
@@ -166,6 +169,7 @@ def check_ffsubsync_available() -> bool:
     """Check if ffsubsync is installed."""
     try:
         import ffsubsync  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -174,19 +178,22 @@ def check_ffsubsync_available() -> bool:
 @main.command("sync")
 @click.argument("input", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--ref", "-r",
+    "--ref",
+    "-r",
     type=click.Path(exists=True, path_type=Path),
     default=None,
     help="Reference file for sub-to-sub sync",
 )
 @click.option(
-    "--video", "-V",
+    "--video",
+    "-V",
     type=click.Path(exists=True, path_type=Path),
     default=None,
     help="Video file for audio sync",
 )
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     required=True,
     help="Output file",
@@ -262,7 +269,8 @@ def sync_cmd(
 @click.argument("sub1", type=click.Path(exists=True, path_type=Path))
 @click.argument("sub2", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     required=True,
     help="Output ASS file",

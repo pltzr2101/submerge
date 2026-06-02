@@ -115,13 +115,16 @@ def _get_effective_settings() -> SubtoolsSettings:
     with _runtime_settings_lock:
         if not _runtime_settings:
             return base
-        overrides = {}
-        for key, val in _runtime_settings.items():
-            if key == "pairs":
-                overrides["pairs_raw"] = val
-            else:
-                overrides[key] = val
+        # Only forward keys that SubtoolsSettings actually accepts — prevents
+        # Pydantic ValidationError from stale/unknown keys in _runtime_settings.
+        known_fields = set(SubtoolsSettings.model_fields.keys()) | {"pairs_raw"}
+        overrides = {
+            ("pairs_raw" if k == "pairs" else k): v
+            for k, v in _runtime_settings.items()
+            if (k == "pairs") or (k in known_fields)
+        }
         from .config import get_settings_for_test
+
         return get_settings_for_test(**overrides)
 
 
@@ -141,6 +144,7 @@ def _apply_template(
     known_fields = set(SubtoolsSettings.model_fields.keys())
     overrides = {k: v for k, v in overrides.items() if k in known_fields}
     from .config import get_settings_for_test
+
     return get_settings_for_test(**overrides)
 
 
@@ -157,7 +161,9 @@ def _runtime_settings_to_response() -> dict[str, Any]:
         "bottom_fontsize": settings.bottom_fontsize,
         "top_fontsize": settings.top_fontsize,
         "bottom_outline": settings.bottom_outline,
+        "bottom_outline_color": settings.bottom_outline_color,
         "top_outline": settings.top_outline,
+        "top_outline_color": settings.top_outline_color,
         "layout": settings.layout,
     }
 
@@ -176,7 +182,11 @@ def create_app() -> FastAPI:
                 "Example: SUBTOOLS_PAIRS=de-ko"
             )
         from .queue import init_db, start_queue_worker, stop_queue_worker
+
         init_db()
+        # Module-level semaphore must be created inside the event loop.
+        global _batch_semaphore
+        _batch_semaphore = asyncio.Semaphore(4)
         # Ensure locks directory exists
         locks_dir = Path(settings.config_dir) / "locks"
         locks_dir.mkdir(parents=True, exist_ok=True)
@@ -186,6 +196,7 @@ def create_app() -> FastAPI:
         # ---- Auto-merge scheduler ----
         app_settings = _load_app_settings()
         if app_settings.get("auto_merge_enabled") and app_settings.get("run_on_startup"):
+
             async def _startup_merge():
                 await asyncio.sleep(10)
                 logger.info("Startup auto-merge triggered")
@@ -294,6 +305,10 @@ _batch_semaphore: asyncio.Semaphore | None = None
 def _get_batch_semaphore() -> asyncio.Semaphore:
     global _batch_semaphore
     if _batch_semaphore is None:
+        logger.warning(
+            "_batch_semaphore not initialised in lifespan — "
+            "creating lazily (OK in tests, unexpected in production)"
+        )
         _batch_semaphore = asyncio.Semaphore(4)
     return _batch_semaphore
 
@@ -429,30 +444,31 @@ async def ui_styles(request: Request):
             "lang_top": lang_top,
             "default_template": default_template,
             "config": {
-            "bottom_fontsize": settings.bottom_fontsize,
-            "bottom_color": settings.bottom_color,
-            "bottom_outline_color": settings.bottom_outline_color,
-            "bottom_outline": settings.bottom_outline,
-            "bottom_shadow": settings.bottom_shadow,
-            "bottom_bold": settings.bottom_bold,
-            "bottom_margin_v": settings.bottom_margin_v,
-            "bottom_margin_h": settings.bottom_margin_h,
-            "bottom_spacing": settings.bottom_spacing,
-            "font_bottom": settings.font_bottom,
-            "top_fontsize": settings.top_fontsize,
-            "top_color": settings.top_color,
-            "top_outline_color": settings.top_outline_color,
-            "top_outline": settings.top_outline,
-            "top_shadow": settings.top_shadow,
-            "top_bold": settings.top_bold,
-            "top_margin_v": settings.top_margin_v,
-            "top_margin_h": settings.top_margin_h,
-            "top_spacing": settings.top_spacing,
-            "font_top": settings.font_top,
-            "layout": settings.layout,
-            "stacked_gap": settings.stacked_gap,
+                "bottom_fontsize": settings.bottom_fontsize,
+                "bottom_color": settings.bottom_color,
+                "bottom_outline_color": settings.bottom_outline_color,
+                "bottom_outline": settings.bottom_outline,
+                "bottom_shadow": settings.bottom_shadow,
+                "bottom_bold": settings.bottom_bold,
+                "bottom_margin_v": settings.bottom_margin_v,
+                "bottom_margin_h": settings.bottom_margin_h,
+                "bottom_spacing": settings.bottom_spacing,
+                "font_bottom": settings.font_bottom,
+                "top_fontsize": settings.top_fontsize,
+                "top_color": settings.top_color,
+                "top_outline_color": settings.top_outline_color,
+                "top_outline": settings.top_outline,
+                "top_shadow": settings.top_shadow,
+                "top_bold": settings.top_bold,
+                "top_margin_v": settings.top_margin_v,
+                "top_margin_h": settings.top_margin_h,
+                "top_spacing": settings.top_spacing,
+                "font_top": settings.font_top,
+                "layout": settings.layout,
+                "stacked_gap": settings.stacked_gap,
+            },
         },
-    })
+    )
 
 
 # =============================================================================
@@ -492,8 +508,8 @@ def _handle_hook(video: str, subtitle: str, lang: str, source: str) -> dict:
             detail={"status": "error", "message": "SUBTOOLS_PAIRS not configured"},
         )
 
-    video_path = validate_path(video, "video")
-    subtitle_path = validate_path(subtitle, "subtitle")
+    video_path = validate_path(video, "video", check_media_root=True)
+    subtitle_path = validate_path(subtitle, "subtitle", check_media_root=True)
 
     logger.info(f"[{source}] Hook: video={video_path.name}, lang={lang}")
 
@@ -573,9 +589,7 @@ def api_media():
     media_root = settings.media_root
     try:
         entries = scan_directory(media_root, settings)
-        return JSONResponse([
-            entry_to_dict(e, settings) for e in entries
-        ])
+        return JSONResponse([entry_to_dict(e, settings) for e in entries])
     except Exception as e:
         logger.error(f"Scan error: {e}")
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
@@ -594,7 +608,9 @@ async def api_merge(request: Request):
         body = await request.json()
         video_path_str = body.get("video_path", "")
         if not video_path_str:
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "video_path required"})  # noqa: E501
+            raise HTTPException(
+                status_code=400, detail={"status": "error", "message": "video_path required"}
+            )  # noqa: E501
 
         video_path = validate_path(video_path_str, "video_path", check_media_root=True)
         overwrite = body.get("overwrite", False)
@@ -609,6 +625,7 @@ async def api_merge(request: Request):
         sub_paths = check_all_languages_present(video_path, merge_settings)
         if sub_paths is None:
             from .hook import get_present_and_missing
+
             present, missing = get_present_and_missing(video_path, merge_settings)
             start_polling(video_path, merge_settings)
             return {
@@ -624,6 +641,7 @@ async def api_merge(request: Request):
 
         # Run merge in thread to not block uvicorn worker
         from .hook import cancel_polling
+
         cancel_polling(video_path)
 
         loop = asyncio.get_running_loop()
@@ -683,12 +701,16 @@ async def api_batch_merge(request: Request):
         def _check_one(video_path: Path) -> dict[str, Any]:
             try:
                 if not video_path.exists():
-                    return {"video": video_path.name, "status": "error",
-                            "reason": "Video file not found"}
+                    return {
+                        "video": video_path.name,
+                        "status": "error",
+                        "reason": "Video file not found",
+                    }
 
                 sub_paths = check_all_languages_present(video_path, merge_settings)
                 if sub_paths is None:
                     from .hook import get_present_and_missing
+
                     present, missing = get_present_and_missing(video_path, merge_settings)
                     start_polling(video_path, merge_settings)
                     return {
@@ -698,8 +720,11 @@ async def api_batch_merge(request: Request):
                     }
 
                 if not overwrite and should_skip_existing(video_path, sub_paths, merge_settings):
-                    return {"video": video_path.name, "status": "skipped",
-                            "reason": "already_exists"}
+                    return {
+                        "video": video_path.name,
+                        "status": "skipped",
+                        "reason": "already_exists",
+                    }
 
                 created_files = process_bilingual_merge(video_path, sub_paths, merge_settings)
                 return {
@@ -709,8 +734,7 @@ async def api_batch_merge(request: Request):
                 }
             except Exception as e:
                 logger.error(f"Batch re-merge error for {video_path.name}: {e}")
-                return {"video": video_path.name, "status": "error",
-                        "reason": str(e)}
+                return {"video": video_path.name, "status": "error", "reason": str(e)}
 
         tasks = [
             _merge_one(validate_path(p, "video_paths[]", check_media_root=True))
@@ -746,13 +770,27 @@ async def api_sync(request: Request):
         lang = body.get("lang", "")
 
         if not subtitle_path_str:
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "subtitle_path required"})  # noqa: E501
+            raise HTTPException(
+                status_code=400, detail={"status": "error", "message": "subtitle_path required"}
+            )  # noqa: E501
 
         sub_path = validate_path(subtitle_path_str, "subtitle_path", check_media_root=True)
         settings = _get_effective_settings()
 
+        lang = lang.strip()
+        if lang and lang not in settings.required_langs:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "message": f"Unknown lang '{lang}'. Valid: {settings.required_langs}",
+                },
+            )
+
         if not sub_path.exists():
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "Subtitle file not found"})  # noqa: E501
+            raise HTTPException(
+                status_code=400, detail={"status": "error", "message": "Subtitle file not found"}
+            )  # noqa: E501
 
         # Robust video detection: peel language suffixes from the stem
         video_file = _find_video_for_subtitle(sub_path)
@@ -779,7 +817,10 @@ async def api_sync(request: Request):
                 sync_subtitles_to_video,
             )
         except ImportError:
-            return {"status": "error", "message": "ffsubsync not installed. Install: pip install 'submerge[sync]'"}  # noqa: E501
+            return {
+                "status": "error",
+                "message": "ffsubsync not installed. Install: pip install 'submerge[sync]'",
+            }  # noqa: E501
 
         try:
             if ref_path:
@@ -787,7 +828,10 @@ async def api_sync(request: Request):
             elif video_file:
                 result = sync_subtitles_to_video(video_file, sub_path, output_path)
             else:
-                return {"status": "error", "message": "No reference subtitle or video found for sync"}  # noqa: E501
+                return {
+                    "status": "error",
+                    "message": "No reference subtitle or video found for sync",
+                }  # noqa: E501
 
             return {
                 "status": "ok",
@@ -817,11 +861,13 @@ def api_scan(background_tasks: BackgroundTasks):
     app_settings = _load_app_settings()
     scan_settings = _apply_template(
         settings,
-        app_settings.get("schedule_template", "")
-        or app_settings.get("default_template", ""),
+        app_settings.get("schedule_template", "") or app_settings.get("default_template", ""),
     )
     background_tasks.add_task(_run_scan, scan_settings)
-    return {"status": "started", "message": "Scan running in background, see /logs/stream for progress"}  # noqa: E501
+    return {
+        "status": "started",
+        "message": "Scan running in background, see /logs/stream for progress",
+    }  # noqa: E501
 
 
 def _run_scan(settings: SubtoolsSettings) -> dict:
@@ -842,18 +888,17 @@ def _run_scan(settings: SubtoolsSettings) -> dict:
 
                 if len(sub_paths) != len(settings.required_langs):
                     missing_langs = [
-                        lang for lang in settings.required_langs
-                        if lang not in sub_paths
+                        lang for lang in settings.required_langs if lang not in sub_paths
                     ]
                     logger.info(
-                        f"Scan {video_path.name}: missing {missing_langs}, "
-                        f"starting polling"
+                        f"Scan {video_path.name}: missing {missing_langs}, starting polling"
                     )
                     start_polling(video_path, settings)
                     polling += 1
                     continue
 
                 from .hook import process_bilingual_merge, should_skip_existing
+
                 if should_skip_existing(video_path, sub_paths, settings):
                     continue
 
@@ -946,12 +991,11 @@ async def api_queue_retry(entry_id: int):
     if sub_paths is None:
         return {"status": "still_waiting", "message": "Not all languages present yet"}
     from .hook import process_bilingual_merge, should_skip_existing
+
     if should_skip_existing(video_path, sub_paths, settings):
         dequeue(video_path, "done", settings=settings)
         return {"status": "skipped", "reason": "already_exists"}
-    created = await run_in_threadpool(
-        process_bilingual_merge, video_path, sub_paths, settings
-    )
+    created = await run_in_threadpool(process_bilingual_merge, video_path, sub_paths, settings)
     dequeue(video_path, "done", settings=settings)
     return {"status": "merged", "files": [str(f) for f in created]}
 
@@ -968,6 +1012,7 @@ async def api_settings(request: Request):
                 pairs_str = str(body["pairs"]).strip()
                 if pairs_str:
                     from .config import _parse_pairs_string
+
                     try:
                         _parse_pairs_string(pairs_str)
                         _runtime_settings["pairs"] = pairs_str
@@ -1039,31 +1084,76 @@ async def api_settings(request: Request):
 
 _DEFAULT_PRESETS = {
     "Standard": {
-        "bottom_fontsize": 20, "bottom_color": "#FFFFFF", "bottom_outline_color": "#000000",
-        "bottom_outline": 2, "bottom_shadow": 1, "bottom_bold": False,
-        "bottom_margin_v": 30, "bottom_margin_h": 20, "bottom_spacing": 0, "font_bottom": "",
-        "top_fontsize": 18, "top_color": "#FFD700", "top_outline_color": "#000000",
-        "top_outline": 2, "top_shadow": 1, "top_bold": False,
-        "top_margin_v": 15, "top_margin_h": 20, "top_spacing": 0, "font_top": "Noto Sans KR",
-        "layout": "top-bottom", "stacked_gap": 8,
+        "bottom_fontsize": 20,
+        "bottom_color": "#FFFFFF",
+        "bottom_outline_color": "#000000",
+        "bottom_outline": 2,
+        "bottom_shadow": 1,
+        "bottom_bold": False,
+        "bottom_margin_v": 30,
+        "bottom_margin_h": 20,
+        "bottom_spacing": 0,
+        "font_bottom": "",
+        "top_fontsize": 18,
+        "top_color": "#FFD700",
+        "top_outline_color": "#000000",
+        "top_outline": 2,
+        "top_shadow": 1,
+        "top_bold": False,
+        "top_margin_v": 15,
+        "top_margin_h": 20,
+        "top_spacing": 0,
+        "font_top": "Noto Sans KR",
+        "layout": "top-bottom",
+        "stacked_gap": 8,
     },
     "Cinema Dark": {
-        "bottom_fontsize": 22, "bottom_color": "#FFFFFF", "bottom_outline_color": "#000000",
-        "bottom_outline": 3, "bottom_shadow": 2, "bottom_bold": False,
-        "bottom_margin_v": 40, "bottom_margin_h": 30, "bottom_spacing": 0, "font_bottom": "",
-        "top_fontsize": 16, "top_color": "#FFD700", "top_outline_color": "#000000",
-        "top_outline": 3, "top_shadow": 2, "top_bold": False,
-        "top_margin_v": 10, "top_margin_h": 30, "top_spacing": 0, "font_top": "Noto Sans KR",
-        "layout": "top-bottom", "stacked_gap": 10,
+        "bottom_fontsize": 22,
+        "bottom_color": "#FFFFFF",
+        "bottom_outline_color": "#000000",
+        "bottom_outline": 3,
+        "bottom_shadow": 2,
+        "bottom_bold": False,
+        "bottom_margin_v": 40,
+        "bottom_margin_h": 30,
+        "bottom_spacing": 0,
+        "font_bottom": "",
+        "top_fontsize": 16,
+        "top_color": "#FFD700",
+        "top_outline_color": "#000000",
+        "top_outline": 3,
+        "top_shadow": 2,
+        "top_bold": False,
+        "top_margin_v": 10,
+        "top_margin_h": 30,
+        "top_spacing": 0,
+        "font_top": "Noto Sans KR",
+        "layout": "top-bottom",
+        "stacked_gap": 10,
     },
     "Bright": {
-        "bottom_fontsize": 18, "bottom_color": "#FFFF00", "bottom_outline_color": "#0000FF",
-        "bottom_outline": 1, "bottom_shadow": 0, "bottom_bold": True,
-        "bottom_margin_v": 20, "bottom_margin_h": 15, "bottom_spacing": 0, "font_bottom": "",
-        "top_fontsize": 16, "top_color": "#00FF00", "top_outline_color": "#0000FF",
-        "top_outline": 1, "top_shadow": 0, "top_bold": True,
-        "top_margin_v": 10, "top_margin_h": 15, "top_spacing": 0, "font_top": "Noto Sans KR",
-        "layout": "stacked", "stacked_gap": 12,
+        "bottom_fontsize": 18,
+        "bottom_color": "#FFFF00",
+        "bottom_outline_color": "#0000FF",
+        "bottom_outline": 1,
+        "bottom_shadow": 0,
+        "bottom_bold": True,
+        "bottom_margin_v": 20,
+        "bottom_margin_h": 15,
+        "bottom_spacing": 0,
+        "font_bottom": "",
+        "top_fontsize": 16,
+        "top_color": "#00FF00",
+        "top_outline_color": "#0000FF",
+        "top_outline": 1,
+        "top_shadow": 0,
+        "top_bold": True,
+        "top_margin_v": 10,
+        "top_margin_h": 15,
+        "top_spacing": 0,
+        "font_top": "Noto Sans KR",
+        "layout": "stacked",
+        "stacked_gap": 12,
     },
 }
 
@@ -1215,8 +1305,7 @@ async def _execute_scheduled_merge() -> None:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, _run_scan, settings)
         logger.info(
-            f"Scheduled auto-merge complete: {result['merged']} merged, "
-            f"{result['polling']} polling"
+            f"Scheduled auto-merge complete: {result['merged']} merged, {result['polling']} polling"
         )
     except Exception as exc:
         logger.error(f"Scheduled auto-merge failed: {exc}")
@@ -1234,7 +1323,9 @@ def api_presets_get(name: str):
     """Get the style fields for a specific preset."""
     presets = _load_presets()
     if name not in presets:
-        raise HTTPException(status_code=404, detail={"status": "error", "message": "Preset not found"})  # noqa: E501
+        raise HTTPException(
+            status_code=404, detail={"status": "error", "message": "Preset not found"}
+        )  # noqa: E501
     return {"name": name, "styles": presets[name]}
 
 
@@ -1246,9 +1337,14 @@ async def api_presets_save(request: Request):
         name = body.get("name", "").strip()
         styles = body.get("styles", {})
         if not name:
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "Name required"})  # noqa: E501
+            raise HTTPException(
+                status_code=400, detail={"status": "error", "message": "Name required"}
+            )  # noqa: E501
         if name in _DEFAULT_PRESETS:
-            raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot override built-in preset"})  # noqa: E501
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "Cannot override built-in preset"},
+            )  # noqa: E501
         presets = _load_presets()
         presets[name] = styles
         _save_custom_presets(presets)
@@ -1263,7 +1359,9 @@ async def api_presets_save(request: Request):
 def api_presets_delete(name: str):
     """Delete a custom style preset (built-in presets cannot be deleted)."""
     if name in _DEFAULT_PRESETS:
-        raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"})  # noqa: E501
+        raise HTTPException(
+            status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"}
+        )  # noqa: E501
 
     presets = _load_presets()
     if name not in presets:
@@ -1276,7 +1374,10 @@ def api_presets_delete(name: str):
     app_settings = _load_app_settings()
     default_template = app_settings.get("default_template", "")
     if name == default_template:
-        raise HTTPException(status_code=400, detail={"status": "error", "message": "Cannot delete the active default template"})  # noqa: E501
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Cannot delete the active default template"},
+        )  # noqa: E501
 
     del presets[name]
     _save_custom_presets(presets)
@@ -1438,7 +1539,9 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
 
     video = validate_path(video_path, "video_path", check_media_root=True)
     if not video.exists():
-        raise HTTPException(status_code=400, detail={"status": "error", "message": "Video not found"})  # noqa: E501
+        raise HTTPException(
+            status_code=400, detail={"status": "error", "message": "Video not found"}
+        )  # noqa: E501
 
     tmp_path = None
     try:
@@ -1446,15 +1549,26 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
             tmp_path = tmp.name
 
         cmd = [
-            "ffmpeg", "-y", "-ss", str(timestamp_s),
-            "-i", str(video), "-vframes", "1",
-            "-q:v", "2", tmp_path,
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(timestamp_s),
+            "-i",
+            str(video),
+            "-vframes",
+            "1",
+            "-q:v",
+            "2",
+            tmp_path,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode != 0 or not Path(tmp_path).exists():
-            raise HTTPException(status_code=500, detail={"status": "error", "message": "Frame extraction failed"})  # noqa: E501
+            raise HTTPException(
+                status_code=500, detail={"status": "error", "message": "Frame extraction failed"}
+            )  # noqa: E501
 
         from fastapi.responses import FileResponse
+
         return FileResponse(
             tmp_path,
             media_type="image/jpeg",

@@ -52,9 +52,7 @@ def validate_lang(lang: str, settings: SubtoolsSettings | None = None) -> str:
     settings = settings or get_settings()
     normalized = normalize_lang(lang)
     if normalized is None:
-        raise InvalidLanguageError(
-            f"Unrecognized language: {lang}. Expected ISO 639-1 code."
-        )
+        raise InvalidLanguageError(f"Unrecognized language: {lang}. Expected ISO 639-1 code.")
     if normalized not in settings.required_langs:
         raise InvalidLanguageError(
             f"Invalid language: {lang} (normalized: {normalized}). "
@@ -289,17 +287,13 @@ def _polling_worker(
             try:
                 sub_paths = check_all_languages_present(video_path, current_settings)
                 if sub_paths is not None:
-                    logger.info(
-                        f"All languages present for {video_path.name} (attempt {attempt})"
-                    )
+                    logger.info(f"All languages present for {video_path.name} (attempt {attempt})")
 
                     if should_skip_existing(video_path, sub_paths, current_settings):
                         logger.info(f"Skipping {video_path.name}: outputs already up-to-date")
                         return
 
-                    created_files = process_bilingual_merge(
-                        video_path, sub_paths, current_settings
-                    )
+                    created_files = process_bilingual_merge(video_path, sub_paths, current_settings)
                     logger.info(
                         f"Polling merge complete for {video_path.name}: "
                         f"{[f.name for f in created_files]}"
@@ -534,9 +528,7 @@ def process_hook(
             )
 
     except Timeout:
-        logger.info(
-            f"Hook for {video_path.name}: already processing by polling worker — skipped"
-        )
+        logger.info(f"Hook for {video_path.name}: already processing by polling worker — skipped")
         return HookResult(status="already_processing")
 
 

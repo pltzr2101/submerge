@@ -84,13 +84,9 @@ def _load_subtitle_file(path: Path) -> SSAFile:
         try:
             return pysubs2.load(str(path))
         except Exception as e:
-            raise InvalidSubtitleError(
-                f"Failed to load {path.name}: {e}"
-            ) from e
+            raise InvalidSubtitleError(f"Failed to load {path.name}: {e}") from e
     except Exception as e:
-        raise InvalidSubtitleError(
-            f"Parsing error {path.name}: {e}"
-        ) from e
+        raise InvalidSubtitleError(f"Parsing error {path.name}: {e}") from e
 
 
 def merge_bilingual(
@@ -230,8 +226,7 @@ def merge_bilingual(
     merged.save(str(output_path))
 
     logger.info(
-        f"Bilingual file created: {output_path} "
-        f"({len(subs1)} + {len(subs2)} = {len(merged)} lines)"
+        f"Bilingual file created: {output_path} ({len(subs1)} + {len(subs2)} = {len(merged)} lines)"
     )
 
     return output_path
