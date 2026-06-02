@@ -66,7 +66,12 @@ class TestMergeIntegration:
         fr_srt.write_text(SAMPLE_SRT_FR)
         pl_srt.write_text(SAMPLE_SRT_PL)
 
-        merge_bilingual(fr_srt, pl_srt, output)
+        merge_bilingual(
+            fr_srt,
+            pl_srt,
+            output,
+            MergeConfig(fontsize_bottom=20, fontsize_top=20, outline_bottom=2.0, outline_top=2.0),
+        )
 
         assert output.exists()
         content = output.read_text()
@@ -88,7 +93,14 @@ class TestMergeIntegration:
         fr_srt.write_text(SAMPLE_SRT_FR)
         pl_srt.write_text(SAMPLE_SRT_PL)
 
-        config = MergeConfig(layout="stacked", fontsize=20)
+        config = MergeConfig(
+            layout="stacked",
+            fontsize=20,
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
         merge_bilingual(fr_srt, pl_srt, output, config)
 
         assert output.exists()
@@ -110,7 +122,12 @@ class TestMergeIntegration:
         fr_srt.write_text(SAMPLE_SRT_FR)
         pl_srt.write_text(SAMPLE_SRT_PL)
 
-        merge_bilingual(fr_srt, pl_srt, output)
+        merge_bilingual(
+            fr_srt,
+            pl_srt,
+            output,
+            MergeConfig(fontsize_bottom=20, fontsize_top=20, outline_bottom=2.0, outline_top=2.0),
+        )
 
         content = output.read_text()
 

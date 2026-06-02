@@ -19,6 +19,7 @@ from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from filelock import FileLock
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -245,7 +246,7 @@ def create_app() -> FastAPI:
             nonlocal _rate_limit_request_count
             _rate_limit_request_count += 1
             if _rate_limit_request_count % 100 == 0 and len(_rate_limits) > 10000:
-                stale = [k for k, v in _rate_limits.items() if not v]
+                stale = [k for k, v in _rate_limits.items() if not any(now - t < 60 for t in v)]
                 for k in stale:
                     del _rate_limits[k]
 
@@ -319,7 +320,7 @@ def _get_batch_semaphore() -> asyncio.Semaphore:
             "_batch_semaphore not initialised in lifespan — "
             "creating lazily (OK in tests, unexpected in production)"
         )
-        _batch_semaphore = asyncio.Semaphore(4)
+        raise RuntimeError("_batch_semaphore not initialized — lifespan handler did not run")
     return _batch_semaphore
 
 
@@ -598,7 +599,7 @@ def api_media():
     settings = _get_effective_settings()
     media_root = settings.media_root
     try:
-        entries = scan_directory(media_root, settings)
+        entries = scan_directory(media_root, settings)  # generator — iterate only once
         return JSONResponse([entry_to_dict(e, settings) for e in entries])
     except Exception as e:
         logger.error(f"Scan error: {e}")
@@ -1187,18 +1188,14 @@ def _load_presets() -> dict:
     presets = dict(_DEFAULT_PRESETS)
     path = _get_presets_path()
     lock_path = path.with_suffix(path.suffix + ".lock")
-    try:
-        from filelock import FileLock
 
-        with FileLock(str(lock_path), timeout=5):
-            if path.exists():
-                try:
-                    custom = json.loads(path.read_text())
-                    presets.update(custom)
-                except Exception:
-                    pass
-    except ImportError:
-        pass
+    with FileLock(str(lock_path), timeout=5):
+        if path.exists():
+            try:
+                custom = json.loads(path.read_text())
+                presets.update(custom)
+            except Exception:
+                pass
     return presets
 
 
@@ -1208,12 +1205,8 @@ def _save_custom_presets(presets: dict) -> None:
     # Only save non-default presets
     custom = {k: v for k, v in presets.items() if k not in _DEFAULT_PRESETS}
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        from filelock import FileLock
 
-        with FileLock(str(lock_path), timeout=5):
-            path.write_text(json.dumps(custom, indent=2))
-    except ImportError:
+    with FileLock(str(lock_path), timeout=5):
         path.write_text(json.dumps(custom, indent=2))
 
 
@@ -1231,8 +1224,10 @@ def _load_app_settings() -> dict[str, Any]:
 def _save_app_settings(data: dict[str, Any]) -> None:
     """Save application settings to settings.json."""
     path = _get_settings_path()
+    lock_path = path.with_suffix(path.suffix + ".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2))
+    with FileLock(str(lock_path), timeout=5):
+        path.write_text(json.dumps(data, indent=2))
 
 
 # ---------------------------------------------------------------

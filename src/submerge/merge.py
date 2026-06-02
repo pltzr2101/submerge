@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -155,10 +156,22 @@ def merge_bilingual(
     font_top = config.font_top
     shadow_bottom = config.shadow_bottom if config.shadow_bottom is not None else config.shadow
     shadow_top = config.shadow_top if config.shadow_top is not None else config.shadow
+    if config.fontsize_bottom is None or config.fontsize_top is None:
+        warnings.warn(
+            "MergeConfig.fontsize is deprecated; use fontsize_bottom / fontsize_top",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     fontsize_bottom = (
         config.fontsize_bottom if config.fontsize_bottom is not None else config.fontsize
     )
     fontsize_top = config.fontsize_top if config.fontsize_top is not None else config.fontsize
+    if config.outline_bottom is None or config.outline_top is None:
+        warnings.warn(
+            "MergeConfig.outline is deprecated; use outline_bottom / outline_top",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     outline_bottom = config.outline_bottom if config.outline_bottom is not None else config.outline
     outline_top = config.outline_top if config.outline_top is not None else config.outline
 

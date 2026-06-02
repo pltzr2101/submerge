@@ -6,9 +6,11 @@ Tests removed: Pydantic validation (the framework does its job).
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
-from submerge.config import get_settings_for_test
+from submerge.config import SubtoolsSettings, get_settings_for_test
 
 
 class TestSubtoolsSettingsDefaults:
@@ -89,3 +91,35 @@ class TestSubtoolsSettingsFromEnv:
         assert settings.fontsize == 20
 
         get_settings.cache_clear()
+
+
+class TestWithOverrides:
+    """Tests for SubtoolsSettings.with_overrides()."""
+
+    def test_pairs_translation(self):
+        """pairs key is mapped to pairs_raw automatically."""
+        s = SubtoolsSettings.with_overrides(pairs="de-ko")
+        assert s.pairs == [("de", "ko")]
+        assert s.required_langs == ["de", "ko"]
+
+    def test_unknown_key_is_dropped_no_error(self):
+        """Unknown keys are silently dropped, no ValidationError."""
+        s = SubtoolsSettings.with_overrides(nonexistent_field="x")
+        assert isinstance(s, SubtoolsSettings)
+
+    def test_unknown_key_logs_warning(self, caplog):
+        """Unknown keys emit a log warning."""
+        with caplog.at_level(logging.WARNING):
+            SubtoolsSettings.with_overrides(zzzzz="whatever")
+        assert "with_overrides: dropping unknown keys" in caplog.text
+        assert "zzzzz" in caplog.text
+
+    def test_mixed_known_and_unknown(self):
+        """Known keys pass through, unknown keys are dropped."""
+        s = SubtoolsSettings.with_overrides(
+            pairs="fr-en",
+            fontsize=24,
+            bogus=999,
+        )
+        assert s.pairs == [("fr", "en")]
+        assert s.fontsize == 24

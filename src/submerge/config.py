@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -206,6 +207,9 @@ def _parse_pairs_string(pairs_str: str) -> list[tuple[str, str]]:
     return pairs
 
 
+logger = logging.getLogger(__name__)
+
+
 class SubtoolsSettings(BaseSettings):
     """Configuration sub-tools depuis variables d'environnement.
 
@@ -281,14 +285,20 @@ class SubtoolsSettings(BaseSettings):
     stacked_gap: int = 8
 
     @classmethod
-    def with_overrides(cls, **overrides) -> SubtoolsSettings:
+    def with_overrides(cls, **overrides: Any) -> SubtoolsSettings:
         """Create a new instance with the given field overrides applied.
 
         Maps the user-friendly ``pairs`` key to ``pairs_raw`` automatically.
+        Unknown keys are dropped with a warning.
         """
         if "pairs" in overrides:
             overrides["pairs_raw"] = overrides.pop("pairs")
-        return cls(**overrides)
+        known = set(cls.model_fields.keys())
+        dropped = [k for k in overrides if k not in known]
+        if dropped:
+            logger.warning(f"with_overrides: dropping unknown keys {dropped}")
+        filtered = {k: v for k, v in overrides.items() if k in known}
+        return cls(**filtered)
 
     @field_validator("pairs_raw")
     @classmethod

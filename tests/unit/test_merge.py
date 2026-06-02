@@ -26,7 +26,13 @@ class TestMergeBilingual:
         """Merge creates an ASS file."""
         output = tmp_path / "output.ass"
 
-        merge_bilingual(sample_srt_fr, sample_srt_pl, output)
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        merge_bilingual(sample_srt_fr, sample_srt_pl, output, config)
 
         assert output.exists()
         assert output.suffix == ".ass"
@@ -35,7 +41,13 @@ class TestMergeBilingual:
         """ASS file contains all events from both sources."""
         output = tmp_path / "output.ass"
 
-        merge_bilingual(sample_srt_fr, sample_srt_pl, output)
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        merge_bilingual(sample_srt_fr, sample_srt_pl, output, config)
 
         subs = pysubs2.load(str(output))
         fr_subs = pysubs2.load(str(sample_srt_fr))
@@ -47,7 +59,13 @@ class TestMergeBilingual:
         """Events are sorted by start time."""
         output = tmp_path / "output.ass"
 
-        merge_bilingual(sample_srt_fr, sample_srt_pl, output)
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        merge_bilingual(sample_srt_fr, sample_srt_pl, output, config)
 
         subs = pysubs2.load(str(output))
         times = [e.start for e in subs]
@@ -96,6 +114,8 @@ class TestMergeConfig:
             fontsize=14,
             fontsize_bottom=22,
             fontsize_top=16,
+            outline_bottom=2.0,
+            outline_top=2.0,
         )
         output = tmp_path / "output.ass"
 
