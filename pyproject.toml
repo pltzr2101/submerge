@@ -19,6 +19,7 @@ dependencies = [
     "jinja2>=3.1",
     "aiofiles>=23.0",
     "apscheduler>=3.10",
+    "charset-normalizer>=3.0",
 ]
 
 

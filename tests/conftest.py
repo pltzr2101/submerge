@@ -16,6 +16,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 # Configuration fixtures
 # =============================================================================
 
+
 @pytest.fixture(autouse=True)
 def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Give each test an isolated SUBTOOLS_CONFIG_DIR and initialized DB."""
@@ -23,15 +24,18 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     config_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(config_dir))
     from submerge.config import get_settings
+
     get_settings.cache_clear()
     # init_db must be called explicitly since DDL is only in init_db
     from submerge.queue import init_db
+
     init_db()
 
 
 # =============================================================================
 # File fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def sample_srt_fr() -> Path:
@@ -48,6 +52,7 @@ def sample_srt_pl() -> Path:
 # =============================================================================
 # Configuration fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def settings_fr_pl_en():

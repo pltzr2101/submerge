@@ -106,9 +106,7 @@ class TestProcessQueue:
     def test_merges_when_all_langs_present(self, tmp_path, queue_settings):
         video = tmp_path / "media" / "Show.mkv"
         video.touch()
-        (tmp_path / "media" / "Show.de.srt").write_text(
-            "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
-        )
+        (tmp_path / "media" / "Show.de.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
         (tmp_path / "media" / "Show.ko.srt").write_text(
             "1\n00:00:00,000 --> 00:00:01,000\n테스트\n"
         )

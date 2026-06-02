@@ -35,11 +35,15 @@ class TestExtractCommand:
 
     def test_error_when_video_not_found(self, runner, tmp_path: Path):
         """extract shows error if video file doesn't exist."""
-        result = runner.invoke(main, [
-            "extract",
-            str(tmp_path / "nonexistent.mkv"),
-            "-o", str(tmp_path / "output.srt"),
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "extract",
+                str(tmp_path / "nonexistent.mkv"),
+                "-o",
+                str(tmp_path / "output.srt"),
+            ],
+        )
 
         assert result.exit_code != 0
 
@@ -52,12 +56,17 @@ class TestExtractCommand:
 
         mock_extract.return_value = output
 
-        result = runner.invoke(main, [
-            "extract",
-            str(video),
-            "-o", str(output),
-            "--track", "2",
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "extract",
+                str(video),
+                "-o",
+                str(output),
+                "--track",
+                "2",
+            ],
+        )
 
         assert result.exit_code == 0
         mock_extract.assert_called_once()
@@ -73,12 +82,17 @@ class TestExtractCommand:
 
         mock_extract.return_value = output
 
-        result = runner.invoke(main, [
-            "extract",
-            str(video),
-            "-o", str(output),
-            "--lang", "en",
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "extract",
+                str(video),
+                "-o",
+                str(output),
+                "--lang",
+                "en",
+            ],
+        )
 
         assert result.exit_code == 0
         mock_extract.assert_called_once()
@@ -95,11 +109,15 @@ class TestExtractCommand:
 
         mock_extract.side_effect = NoSubtitleTracksError("No subtitle tracks found")
 
-        result = runner.invoke(main, [
-            "extract",
-            str(video),
-            "-o", str(tmp_path / "output.srt"),
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "extract",
+                str(video),
+                "-o",
+                str(tmp_path / "output.srt"),
+            ],
+        )
 
         assert result.exit_code == 1
         assert "no subtitle tracks" in result.output.lower()
@@ -114,14 +132,20 @@ class TestExtractCommand:
 
         mock_extract.side_effect = SubtitleExtractionError("ffmpeg failed")
 
-        result = runner.invoke(main, [
-            "extract",
-            str(video),
-            "-o", str(tmp_path / "output.srt"),
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "extract",
+                str(video),
+                "-o",
+                str(tmp_path / "output.srt"),
+            ],
+        )
 
         assert result.exit_code == 1
-        assert "ffmpeg failed" in result.output.lower() or "extraction error" in result.output.lower()  # noqa: E501
+        assert (
+            "ffmpeg failed" in result.output.lower() or "extraction error" in result.output.lower()
+        )  # noqa: E501
 
     @patch("submerge.cli.extract_subtitles")
     def test_shows_error_when_probe_fails(self, mock_extract, runner, tmp_path: Path):
@@ -133,11 +157,15 @@ class TestExtractCommand:
 
         mock_extract.side_effect = ProbeError("ffprobe not found")
 
-        result = runner.invoke(main, [
-            "extract",
-            str(video),
-            "-o", str(tmp_path / "output.srt"),
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "extract",
+                str(video),
+                "-o",
+                str(tmp_path / "output.srt"),
+            ],
+        )
 
         assert result.exit_code == 1
         assert "ffprobe" in result.output.lower() or "error" in result.output.lower()
@@ -148,11 +176,7 @@ class TestSyncCommand:
 
     def test_requires_ref_or_video(self, runner, sample_srt_fr: Path):
         """sync requires --ref or --video."""
-        result = runner.invoke(main, [
-            "sync",
-            str(sample_srt_fr),
-            "-o", "output.srt"
-        ])
+        result = runner.invoke(main, ["sync", str(sample_srt_fr), "-o", "output.srt"])
         assert result.exit_code != 0
         assert "ref" in result.output.lower() or "video" in result.output.lower()
 
@@ -163,12 +187,17 @@ class TestSyncCommand:
         """Clear message if ffsubsync is not installed."""
         mock_check.return_value = False
 
-        result = runner.invoke(main, [
-            "sync",
-            str(sample_srt_fr),
-            "--ref", str(sample_srt_pl),
-            "-o", str(tmp_path / "output.srt")
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "sync",
+                str(sample_srt_fr),
+                "--ref",
+                str(sample_srt_pl),
+                "-o",
+                str(tmp_path / "output.srt"),
+            ],
+        )
 
         assert result.exit_code == 1
         assert "ffsubsync" in result.output
@@ -179,49 +208,68 @@ class TestMergeCommand:
     """Tests for merge command."""
 
     def test_creates_ass_file(
-        self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path,
+        self,
+        runner,
+        tmp_path: Path,
+        sample_srt_fr: Path,
+        sample_srt_pl: Path,
     ):
         """merge creates an ASS file."""
         output = tmp_path / "output.ass"
 
-        result = runner.invoke(main, [
-            "merge",
-            str(sample_srt_fr),
-            str(sample_srt_pl),
-            "-o", str(output)
-        ])
+        result = runner.invoke(
+            main, ["merge", str(sample_srt_fr), str(sample_srt_pl), "-o", str(output)]
+        )
 
         assert result.exit_code == 0
         assert output.exists()
 
     def test_rejects_invalid_color(
-        self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path,
+        self,
+        runner,
+        tmp_path: Path,
+        sample_srt_fr: Path,
+        sample_srt_pl: Path,
     ):
         """merge rejects invalid colors."""
-        result = runner.invoke(main, [
-            "merge",
-            str(sample_srt_fr),
-            str(sample_srt_pl),
-            "-o", str(tmp_path / "out.ass"),
-            "--color1", "invalid"
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "merge",
+                str(sample_srt_fr),
+                str(sample_srt_pl),
+                "-o",
+                str(tmp_path / "out.ass"),
+                "--color1",
+                "invalid",
+            ],
+        )
 
         assert result.exit_code != 0
         assert "invalid" in result.output.lower()
 
     def test_accepts_layout_option(
-        self, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path,
+        self,
+        runner,
+        tmp_path: Path,
+        sample_srt_fr: Path,
+        sample_srt_pl: Path,
     ):
         """merge accepts --layout stacked."""
         output = tmp_path / "output.ass"
 
-        result = runner.invoke(main, [
-            "merge",
-            str(sample_srt_fr),
-            str(sample_srt_pl),
-            "-o", str(output),
-            "--layout", "stacked"
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "merge",
+                str(sample_srt_fr),
+                str(sample_srt_pl),
+                "-o",
+                str(output),
+                "--layout",
+                "stacked",
+            ],
+        )
 
         assert result.exit_code == 0
         assert output.exists()

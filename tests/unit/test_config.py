@@ -81,6 +81,7 @@ class TestSubtoolsSettingsFromEnv:
         monkeypatch.setenv("SUBTOOLS_FONTSIZE", "20")
 
         from submerge.config import get_settings
+
         get_settings.cache_clear()
 
         settings = get_settings()

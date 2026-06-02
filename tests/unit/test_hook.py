@@ -208,6 +208,7 @@ class TestPollingQueueInteraction:
 
         # Verify entry is marked done
         from submerge.queue import get_pending_entries
+
         pending = get_pending_entries(settings)
         assert len(pending) == 0
 
@@ -216,6 +217,7 @@ class TestPollingQueueInteraction:
         import submerge.config as cfg_mod
         from submerge.hook import cancel_polling, start_polling
         from submerge.queue import enqueue, process_queue
+
         settings = cfg_mod.SubtoolsSettings(SUBTOOLS_PAIRS="de-ko")
         video = tmp_path / "Movie.mkv"
         video.touch()
@@ -262,8 +264,7 @@ class TestProcessHookTimeout:
                 result = process_hook(video, sub, "de", settings)
                 assert result.status == "already_processing"
                 mock_logger.info.assert_any_call(
-                    f"Hook for {video.name}: already processing "
-                    "by polling worker — skipped"
+                    f"Hook for {video.name}: already processing by polling worker — skipped"
                 )
 
 
@@ -277,12 +278,8 @@ class TestEventSortOrder:
         merged = pysubs2.SSAFile()
 
         # Two events at the same start time, different styles
-        bottom_evt = pysubs2.SSAEvent(
-            start=1000, end=2000, style="bottom", text="Guten Tag"
-        )
-        top_evt = pysubs2.SSAEvent(
-            start=1000, end=2000, style="top", text="안녕하세요"
-        )
+        bottom_evt = pysubs2.SSAEvent(start=1000, end=2000, style="bottom", text="Guten Tag")
+        top_evt = pysubs2.SSAEvent(start=1000, end=2000, style="top", text="안녕하세요")
         merged.append(bottom_evt)
         merged.append(top_evt)
 

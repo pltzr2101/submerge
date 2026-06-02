@@ -19,6 +19,7 @@ from submerge.sync import FfsubsyncNotFoundError, SyncError, sync_subtitles
 # Tests probe.py
 # =============================================================================
 
+
 class TestProbe:
     """Tests for list_subtitle_tracks."""
 
@@ -32,6 +33,7 @@ class TestProbe:
 # Tests extract.py
 # =============================================================================
 
+
 class TestExtract:
     """Tests for extract_subtitles."""
 
@@ -42,6 +44,7 @@ class TestExtract:
 
         with patch("submerge.extract.list_subtitle_tracks") as mock_probe:
             from submerge.probe import SubtitleTrack
+
             mock_probe.return_value = [
                 SubtitleTrack(2, "subrip", "eng", None, False, True, True),
             ]
@@ -60,6 +63,7 @@ class TestExtract:
 
         with patch("submerge.extract.list_subtitle_tracks") as mock_probe:
             from submerge.probe import SubtitleTrack
+
             mock_probe.return_value = [
                 SubtitleTrack(2, "subrip", "eng", None, False, True, True),
             ]
@@ -75,6 +79,7 @@ class TestExtract:
 # =============================================================================
 # Tests sync.py
 # =============================================================================
+
 
 class TestSync:
     """Tests for sync_subtitles."""

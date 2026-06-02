@@ -79,10 +79,19 @@ def _load_subtitle_file(path: Path) -> SSAFile:
         # pysubs2 handles encoding detection automatically
         return pysubs2.load(str(path), encoding="utf-8")
     except UnicodeDecodeError:
-        # Fallback to automatic detection
+        # Fallback: use charset_normalizer for robust auto-detection
         logger.warning(f"UTF-8 encoding failed for {path.name}, auto-detecting...")
         try:
-            return pysubs2.load(str(path))
+            from charset_normalizer import from_path as _detect
+
+            result = _detect(path).best()
+            if result is None:
+                raise InvalidSubtitleError(f"Could not detect encoding for {path.name}")
+            content = str(result)
+            subs = pysubs2.SSAFile.from_string(content)
+            return subs
+        except InvalidSubtitleError:
+            raise
         except Exception as e:
             raise InvalidSubtitleError(f"Failed to load {path.name}: {e}") from e
     except Exception as e:
@@ -207,6 +216,10 @@ def merge_bilingual(
             shadow=shadow_top,
             spacing=config.spacing_top,
         )
+
+    # Enable smart line breaking for CJK text (Korean, Chinese, Japanese)
+    for style_name in ("bottom", "top"):
+        merged.styles[style_name].wrap_style = 0  # SMART_RT
 
     # Add events with their styles
     for event in subs1:

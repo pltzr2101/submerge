@@ -424,13 +424,14 @@ def process_bilingual_merge(
 
             output_path = get_output_path(video_path, lang_bottom, lang_top)
 
+            # Enforce order from pairs config: first language (lang_bottom)
+            # always goes to sub1_path (displayed at bottom), second
+            # language (lang_top) always goes to sub2_path (displayed at top).
+            sub1_path = sub_paths[lang_bottom]
+            sub2_path = sub_paths[lang_top]
+
             logger.info(f"Merging {lang_bottom}-{lang_top}...")
-            merge_bilingual(
-                sub_paths[lang_bottom],
-                sub_paths[lang_top],
-                output_path,
-                merge_config,
-            )
+            merge_bilingual(sub1_path, sub2_path, output_path, merge_config)
             created_files.append(output_path)
             logger.info(f"Created: {output_path}")
 
