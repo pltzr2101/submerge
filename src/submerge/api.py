@@ -320,7 +320,7 @@ def _get_batch_semaphore() -> asyncio.Semaphore:
             "_batch_semaphore not initialised in lifespan — "
             "creating lazily (OK in tests, unexpected in production)"
         )
-        raise RuntimeError("_batch_semaphore not initialized — lifespan handler did not run")
+        _batch_semaphore = asyncio.Semaphore(4)
     return _batch_semaphore
 
 
