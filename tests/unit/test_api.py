@@ -108,6 +108,30 @@ class TestValidatePath:
         assert exc_info.value.status_code == 400
         assert "absolute path" in str(exc_info.value.detail["message"])
 
+    def test_rejects_empty_path(self):
+        """Rejects empty path string."""
+        from fastapi import HTTPException
+
+        from submerge.api import validate_path
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_path("", "video")
+
+        assert exc_info.value.status_code == 400
+        assert "absolute path" in str(exc_info.value.detail["message"])
+
+    def test_rejects_path_with_dotdot_traversal(self):
+        """Rejects paths with .. traversal when check_media_root=True."""
+        from fastapi import HTTPException
+
+        from submerge.api import validate_path
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_path("/data/../etc/passwd", "video", check_media_root=True)
+
+        assert exc_info.value.status_code == 400
+        assert "within media root" in str(exc_info.value.detail["message"])
+
 
 class TestAsyncEndpoints:
     """v2.0.3: Verify async-correctness of blocking endpoints."""
