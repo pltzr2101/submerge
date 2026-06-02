@@ -328,6 +328,7 @@ class TestRateLimitNotBypassedAfterIdle:
         from starlette.testclient import TestClient
 
         from submerge.api import app
+
         client = TestClient(app)
 
         t0 = 1_000_000_000.0  # High enough to trim all real entries
