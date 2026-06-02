@@ -248,7 +248,6 @@ class SubtoolsSettings(BaseSettings):
     rate_limit_rpm: int = 30  # 0 = disabled
 
     # Appearance
-    fontsize: int = 18  # Legacy generic field; prefer bottom_fontsize / top_fontsize
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
 
     # Bottom subtitle style (e.g., DE)
@@ -315,7 +314,7 @@ class SubtoolsSettings(BaseSettings):
             raise ValueError(f"Invalid color: '{v}'. Expected format: #RRGGBB")
         return v.upper()
 
-    @field_validator("fontsize", "bottom_fontsize", "top_fontsize")
+    @field_validator("bottom_fontsize", "top_fontsize")
     @classmethod
     def validate_fontsize(cls, v: int) -> int:
         """Validate fontsize range"""

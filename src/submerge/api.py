@@ -237,7 +237,11 @@ def create_app() -> FastAPI:
             if rate_limit_rpm <= 0:
                 return await call_next(request)
 
-            client = request.client.host if request.client else "unknown"
+            client = (
+                request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                or (request.client.host if request.client else None)
+                or "unknown"
+            )
             now = time.monotonic()
             bucket = _rate_limits.get(client, [])
             bucket = [t for t in bucket if now - t < 60]

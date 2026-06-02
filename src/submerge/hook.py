@@ -388,7 +388,6 @@ def process_bilingual_merge(
     merge_config = MergeConfig(
         color_bottom=settings.bottom_color,
         color_top=settings.top_color,
-        fontsize=settings.fontsize,
         fontsize_bottom=settings.bottom_fontsize,
         fontsize_top=settings.top_fontsize,
         font_bottom=settings.font_bottom,

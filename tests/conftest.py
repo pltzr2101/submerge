@@ -61,7 +61,8 @@ def settings_fr_pl_en():
         pairs="fr-pl,en-pl",
         bottom_color="#FFFFFF",
         top_color="#FFFF00",
-        fontsize=18,
+        bottom_fontsize=20,
+        top_fontsize=20,
         layout="top-bottom",
     )
 

@@ -27,7 +27,8 @@ class TestSubtoolsSettingsDefaults:
         assert settings.required_langs == []
         assert settings.bottom_color == "#FFFFFF"
         assert settings.top_color == "#FFD700"
-        assert settings.fontsize == 18
+        assert settings.bottom_fontsize == 22
+        assert settings.top_fontsize == 22
         assert settings.layout == "top-bottom"
 
 
@@ -88,7 +89,7 @@ class TestSubtoolsSettingsFromEnv:
 
         settings = get_settings()
         assert settings.pairs == [("fr", "en")]
-        assert settings.fontsize == 20
+        assert settings.bottom_fontsize == 22
 
         get_settings.cache_clear()
 
@@ -118,8 +119,8 @@ class TestWithOverrides:
         """Known keys pass through, unknown keys are dropped."""
         s = SubtoolsSettings.with_overrides(
             pairs="fr-en",
-            fontsize=24,
+            bottom_fontsize=24,
             bogus=999,
         )
         assert s.pairs == [("fr", "en")]
-        assert s.fontsize == 24
+        assert s.bottom_fontsize == 24

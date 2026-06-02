@@ -45,8 +45,8 @@ class MergeConfig:
     shadow: float = 1.0  # Enabled by default for readability
     shadow_bottom: float | None = None  # None = inherit shadow
     shadow_top: float | None = None
-    margin_v_bottom: float = 30
-    margin_v_top: float = 15
+    margin_v_bottom: float = 20
+    margin_v_top: float = 20
     margin_h_bottom: float = 20
     margin_h_top: float = 20
     spacing_bottom: float = 0.0
@@ -158,7 +158,7 @@ def merge_bilingual(
     shadow_top = config.shadow_top if config.shadow_top is not None else config.shadow
     if config.fontsize_bottom is None or config.fontsize_top is None:
         warnings.warn(
-            "MergeConfig.fontsize is deprecated; use fontsize_bottom / fontsize_top",
+            "MergeConfig.fontsize is deprecated; set fontsize_bottom and fontsize_top explicitly.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -181,7 +181,7 @@ def merge_bilingual(
     # Define styles based on layout
     if config.layout == "stacked":
         # Both at bottom, one above the other
-        margin_top_calc = config.margin_v_bottom + (config.stacked_gap or 8)
+        margin_top_calc = config.margin_v_bottom + config.stacked_gap
 
         merged.styles["bottom"] = SSAStyle(
             fontname=font_bottom,
