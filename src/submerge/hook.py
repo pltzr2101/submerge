@@ -344,9 +344,11 @@ def start_polling(
     return True
 
 
-def get_lock_path(video_path: Path) -> Path:
+def get_lock_path(video_path: Path, settings: SubtoolsSettings | None = None) -> Path:
     """Return the lock file path for a video, stored in config_dir/locks."""
-    locks_dir = Path(get_settings().config_dir) / "locks"
+    s = settings or get_settings()
+    locks_dir = Path(s.config_dir) / "locks"
+    locks_dir.mkdir(parents=True, exist_ok=True)
     return locks_dir / f"{video_path.stem}.lock"
 
 
@@ -452,7 +454,7 @@ def process_hook(
         raise ProcessingError(f"Video file not found: {video_path}")
 
     # Acquire lock
-    lock_path = get_lock_path(video_path)
+    lock_path = get_lock_path(video_path, settings)
     lock = FileLock(lock_path, timeout=LOCK_TIMEOUT)
 
     try:

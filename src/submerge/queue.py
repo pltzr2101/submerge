@@ -13,7 +13,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .config import SubtoolsSettings, get_settings
 from .models import QueueEntry
@@ -46,7 +46,22 @@ def _get_connection(
         conn = sqlite3.connect(str(db_path))
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
-        # Ensure table exists (self-healing)
+        return conn
+    except sqlite3.OperationalError as e:
+        logger.warning(f"Queue database unavailable: {e}")
+        return None
+
+
+def init_db(settings: SubtoolsSettings | None = None) -> None:
+    """Initialize the queue database (idempotent — safe to call repeatedly).
+
+    Must be called once at startup before any queue operations.
+    Called automatically by the FastAPI lifespan handler.
+    """
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return
+    try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pending_merges (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,16 +79,7 @@ def _get_connection(
             CREATE INDEX IF NOT EXISTS idx_status ON pending_merges(status)
         """)
         conn.commit()
-        return conn
-    except sqlite3.OperationalError as e:
-        logger.warning(f"Queue database unavailable: {e}")
-        return None
-
-
-def init_db(settings: SubtoolsSettings | None = None) -> None:
-    """Initialize the queue database (idempotent — safe to call repeatedly)."""
-    conn = _get_connection(settings=settings)
-    if conn:
+    finally:
         conn.close()
 
 
@@ -134,7 +140,7 @@ def enqueue(video_path: str | Path, settings: SubtoolsSettings | None = None) ->
 
 def dequeue(
     video_path: str | Path,
-    status: str = "done",
+    status: Literal["done", "failed"] = "done",
     error_msg: str | None = None,
     settings: SubtoolsSettings | None = None,
 ) -> None:
