@@ -28,7 +28,8 @@ def _get_db_path(settings: SubtoolsSettings | None = None) -> Path:
     data_dir = Path(settings.config_dir)
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
-    except (PermissionError, OSError):
+    except (PermissionError, OSError) as e:
+        logger.warning(f"Cannot create config dir {data_dir}: {e}")
         pass  # Will be handled by callers
     return data_dir / "queue.db"
 

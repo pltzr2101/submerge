@@ -10,7 +10,7 @@ from typing import Any, Literal
 from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# ISO 639-1 codes (subset des plus courants, extensible)
+# ISO 639-1 codes (common subset, extensible)
 ISO_639_1_CODES = {
     "aa",
     "ab",
@@ -211,7 +211,7 @@ logger = logging.getLogger(__name__)
 
 
 class SubtoolsSettings(BaseSettings):
-    """Configuration sub-tools depuis variables d'environnement.
+    """Configuration loaded from environment variables (SUBTOOLS_* prefix).
 
     Environment variables (all prefixed with SUBTOOLS_):
     - SUBTOOLS_PAIRS: Language pairs (required for API), e.g., "fr-pl,en-pl"
@@ -248,11 +248,11 @@ class SubtoolsSettings(BaseSettings):
     rate_limit_rpm: int = 30  # 0 = disabled
 
     # Appearance
-    fontsize: int = 18
+    fontsize: int = 18  # Legacy generic field; prefer bottom_fontsize / top_fontsize
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
 
     # Bottom subtitle style (e.g., DE)
-    bottom_fontsize: int = 20
+    bottom_fontsize: int = 18
     bottom_color: str = Field(
         default="#FFFFFF",
         validation_alias="SUBTOOLS_COLOR_BOTTOM",
@@ -348,12 +348,8 @@ def get_settings() -> SubtoolsSettings:
 
 
 def get_settings_for_test(**overrides) -> SubtoolsSettings:
-    """Factory for tests - allows overriding values.
-
-    Supports user-friendly parameter names that map to internal fields:
-    - pairs -> pairs_raw
-    """
-    # Map user-friendly names to internal field names
+    """Factory for tests — delegates to SubtoolsSettings.with_overrides."""
+    # Map user-friendly 'pairs' to internal 'pairs_raw', then delegate
     if "pairs" in overrides:
         overrides["pairs_raw"] = overrides.pop("pairs")
-    return SubtoolsSettings(**overrides)
+    return SubtoolsSettings.with_overrides(**overrides)

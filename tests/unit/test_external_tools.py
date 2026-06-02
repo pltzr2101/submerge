@@ -92,22 +92,26 @@ class TestSync:
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
 
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(FfsubsyncNotFoundError, match="ffsubsync not found"):
-                sync_subtitles(ref_file, input_file, tmp_path / "output.srt")
+        with (
+            patch("shutil.which", return_value=None),
+            pytest.raises(FfsubsyncNotFoundError, match="ffsubsync not found"),
+        ):
+            sync_subtitles(ref_file, input_file, tmp_path / "output.srt")
 
     def test_raises_when_reference_file_missing(self, tmp_path: Path):
         """Error if reference file doesn't exist."""
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nTest\n")
 
-        with patch("shutil.which", return_value="/usr/bin/ffs"):
-            with pytest.raises(SyncError, match="File not found"):
-                sync_subtitles(
-                    tmp_path / "nonexistent.srt",
-                    input_file,
-                    tmp_path / "output.srt",
-                )
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffs"),
+            pytest.raises(SyncError, match="File not found"),
+        ):
+            sync_subtitles(
+                tmp_path / "nonexistent.srt",
+                input_file,
+                tmp_path / "output.srt",
+            )
 
     def test_raises_when_format_not_supported(self, tmp_path: Path):
         """Error if format is not supported."""
@@ -117,6 +121,8 @@ class TestSync:
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nTest\n")
 
-        with patch("shutil.which", return_value="/usr/bin/ffs"):
-            with pytest.raises(SyncError, match="Unsupported format"):
-                sync_subtitles(ref_file, input_file, tmp_path / "output.srt")
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffs"),
+            pytest.raises(SyncError, match="Unsupported format"),
+        ):
+            sync_subtitles(ref_file, input_file, tmp_path / "output.srt")

@@ -28,7 +28,9 @@ def validate_color(ctx: click.Context, param: click.Parameter, value: str) -> st
     try:
         int(color, 16)
     except ValueError:
-        raise click.BadParameter(f"Invalid color: {value}. Use hexadecimal format #RRGGBB")
+        raise click.BadParameter(
+            f"Invalid color: {value}. Use hexadecimal format #RRGGBB"
+        ) from None
     return f"#{color}"
 
 

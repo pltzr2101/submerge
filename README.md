@@ -4,7 +4,7 @@ Automatic bilingual subtitle merge service for ARR stacks. Combines two single-l
 
 [![Python](https://img.shields.io/badge/python-3.10+-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.3-brightgreen)](https://github.com/pltzr2101/submerge/releases)
+[![Version](https://img.shields.io/github/v/release/pltzr2101/submerge?label=version)](https://github.com/pltzr2101/submerge/releases/latest)
 [![Tests](https://img.shields.io/badge/tests-100%20passing-success)](tests/)
 
 ## Table of Contents
@@ -215,16 +215,16 @@ Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282`:
 
 ```bash
 # Install with dev dependencies
-pip install -e ".[dev]"
+uv sync --all-extras
 
 # Run server with hot-reload
-uvicorn submerge.api:app --reload --port 8282
+uv run uvicorn submerge.api:app --reload --port 8282
 
 # Run all tests
-pytest
+uv run pytest
 
 # Lint
-ruff check src tests
+uv run ruff check src tests
 ```
 
 ## License

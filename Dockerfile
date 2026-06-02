@@ -11,10 +11,10 @@ RUN apt-get update && \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
-COPY pyproject.toml .
+COPY pyproject.toml uv.lock ./
+RUN uv pip install --system --no-cache -r pyproject.toml
 COPY src/ src/
-
-RUN uv pip install --system --no-cache .
+RUN uv pip install --system --no-cache --no-deps .
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:8282/health || exit 1

@@ -8,18 +8,21 @@ import json
 import logging
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from filelock import FileLock
+from pydantic import ValidationError
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -72,10 +75,8 @@ class SSEHandler(logging.Handler):
             q = _get_log_queue()
             # Drop oldest if full before enqueuing
             if q.full():
-                try:
+                with suppress(asyncio.QueueEmpty):
                     q.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
             loop.call_soon_threadsafe(q.put_nowait, msg)
         except Exception:
             pass
@@ -373,7 +374,7 @@ def validate_path(path_str: str, param_name: str, check_media_root: bool = False
         raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": f"Invalid {param_name} path"},
-        )
+        ) from e
 
 
 def _find_video_for_subtitle(sub_path: Path) -> Path | None:
@@ -546,7 +547,7 @@ def _handle_hook(video: str, subtitle: str, lang: str, source: str) -> dict:
         raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": str(e)},
-        )
+        ) from e
     except ProcessingError as e:
         error_msg = str(e)
         # Don't expose full paths in errors
@@ -555,18 +556,18 @@ def _handle_hook(video: str, subtitle: str, lang: str, source: str) -> dict:
             raise HTTPException(
                 status_code=400,
                 detail={"status": "error", "message": "Video file not found"},
-            )
+            ) from e
         logger.error(f"Processing error: {e}")
         raise HTTPException(
             status_code=500,
             detail={"status": "error", "message": "Processing failed"},
-        )
+        ) from e
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")
         raise HTTPException(
             status_code=500,
             detail={"status": "error", "message": "Internal server error"},
-        )
+        ) from e
 
 
 @app.get("/health")
@@ -603,7 +604,7 @@ def api_media():
         return JSONResponse([entry_to_dict(e, settings) for e in entries])
     except Exception as e:
         logger.error(f"Scan error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.post("/api/merge")
@@ -670,7 +671,7 @@ async def api_merge(request: Request):
         raise
     except Exception as e:
         logger.exception(f"Merge error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.post("/api/batch-merge")
@@ -769,7 +770,7 @@ async def api_batch_merge(request: Request):
         raise
     except Exception as e:
         logger.exception(f"Batch merge error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.post("/api/sync")
@@ -858,7 +859,7 @@ async def api_sync(request: Request):
         raise
     except Exception as e:
         logger.exception(f"Sync error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.post("/scan")
@@ -966,7 +967,7 @@ def api_queue():
         return JSONResponse({"entries": entries, "count": len(entries)})
     except Exception as e:
         logger.error(f"Queue fetch error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.post("/api/queue/{entry_id}/remove")
@@ -1016,9 +1017,10 @@ async def api_settings(request: Request):
     """Apply runtime settings (in-memory only, not persisted)."""
     try:
         body = await request.json()
+        known_fields = set(SubtoolsSettings.model_fields.keys())
 
         with _runtime_settings_lock:
-            # Validate and apply each setting
+            # -- Special-case: pairs (parse validation via _parse_pairs_string) --
             if "pairs" in body and body["pairs"]:
                 pairs_str = str(body["pairs"]).strip()
                 if pairs_str:
@@ -1028,134 +1030,50 @@ async def api_settings(request: Request):
                         _parse_pairs_string(pairs_str)
                         _runtime_settings["pairs"] = pairs_str
                     except ValueError as e:
-                        return {"status": "error", "message": f"Invalid pairs: {e}"}
+                        raise HTTPException(
+                            status_code=422,
+                            detail={"status": "error", "message": f"Invalid pairs: {e}"},
+                        ) from e
 
+            # -- Special-case: media_root (I/O path check) --
             if "media_root" in body:
-                from pathlib import Path
-
                 resolved = Path(str(body["media_root"])).resolve()
                 if not resolved.is_dir():
-                    return {
-                        "status": "error",
-                        "message": f"media_root is not a directory: {resolved}",
-                    }
-                _runtime_settings["media_root"] = str(resolved)
-
-            if "poll_interval" in body:
-                try:
-                    val = int(body["poll_interval"])
-                    if 10 <= val <= 3600:
-                        _runtime_settings["poll_interval"] = val
-                except (ValueError, TypeError):
-                    pass
-
-            # --- Hex-validated colour fields ---
-            from .config import HEX_COLOR_PATTERN
-
-            for field_name in (
-                "bottom_color",
-                "top_color",
-                "bottom_outline_color",
-                "top_outline_color",
-            ):
-                if field_name in body:
-                    color = str(body[field_name]).strip()
-                    if not color:
-                        continue
-                    if not HEX_COLOR_PATTERN.match(color):
-                        return {
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
                             "status": "error",
-                            "message": f"Invalid {field_name} format: {color}",
-                        }
-                    _runtime_settings[field_name] = color.upper()
+                            "message": f"media_root is not a directory: {resolved}",
+                        },
+                    )
+                body["media_root"] = str(resolved)
 
-            # legacy — sets fontsize; prefer bottom_fontsize/top_fontsize
-            if "fontsize" in body:
+            # -- Build candidate from known model fields (exclude pairs — already handled) --
+            candidate = {k: v for k, v in body.items() if k in known_fields and k != "pairs_raw"}
+
+            if candidate:
                 try:
-                    val = int(body["fontsize"])
-                    if 8 <= val <= 72:
-                        _runtime_settings["fontsize"] = val
-                except (ValueError, TypeError):
-                    pass
-
-            if "bottom_fontsize" in body:
-                try:
-                    val = int(body["bottom_fontsize"])
-                    if 8 <= val <= 72:
-                        _runtime_settings["bottom_fontsize"] = val
-                except (ValueError, TypeError):
-                    pass
-
-            if "top_fontsize" in body:
-                try:
-                    val = int(body["top_fontsize"])
-                    if 8 <= val <= 72:
-                        _runtime_settings["top_fontsize"] = val
-                except (ValueError, TypeError):
-                    pass
-
-            if "layout" in body:
-                layout = str(body["layout"]).strip()
-                if layout in ("top-bottom", "stacked"):
-                    _runtime_settings["layout"] = layout
-
-            # --- Per-style margin fields ---
-            _INT_RANGES = {
-                "stacked_gap": (4, 200),
-                "bottom_margin_v": (0, 500),
-                "bottom_margin_h": (0, 500),
-                "top_margin_v": (0, 500),
-                "top_margin_h": (0, 500),
-            }
-            for field_name, (lo, hi) in _INT_RANGES.items():
-                if field_name in body:
-                    try:
-                        val = int(body[field_name])
-                        if lo <= val <= hi:
-                            _runtime_settings[field_name] = val
-                    except (ValueError, TypeError):
-                        pass
-
-            # --- Per-style float fields (outline, shadow) ---
-            _FLOAT_RANGES = {
-                "bottom_outline": (0.0, 10.0),
-                "top_outline": (0.0, 10.0),
-                "bottom_shadow": (0.0, 10.0),
-                "top_shadow": (0.0, 10.0),
-            }
-            for field_name, (lo, hi) in _FLOAT_RANGES.items():
-                if field_name in body:
-                    try:
-                        val = float(body[field_name])
-                        if lo <= val <= hi:
-                            _runtime_settings[field_name] = val
-                    except (ValueError, TypeError):
-                        pass
-
-            # --- Bold boolean flags ---
-            for field_name in ("bottom_bold", "top_bold"):
-                if field_name in body:
-                    try:
-                        val = bool(body[field_name])
+                    validated = SubtoolsSettings.with_overrides(**candidate)
+                except ValidationError as e:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"status": "error", "message": str(e)},
+                    ) from e
+                # Merge validated values into runtime settings
+                for field_name in candidate:
+                    val = getattr(validated, field_name, None)
+                    # Allow empty font strings to pass through
+                    if val is not None or field_name in ("font_bottom", "font_top"):
                         _runtime_settings[field_name] = val
-                    except (ValueError, TypeError):
-                        pass
-
-            # --- Font name strings ---
-            for field_name in ("font_bottom", "font_top"):
-                if field_name in body:
-                    try:
-                        val = str(body[field_name]).strip()[:128]
-                        _runtime_settings[field_name] = val
-                    except (ValueError, TypeError):
-                        pass
 
         logger.info(f"Runtime settings updated: {list(_runtime_settings.keys())}")
         return {"status": "ok", "settings": _runtime_settings_to_response()}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Settings update error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 # =============================================================================
@@ -1370,10 +1288,8 @@ def _stop_scheduler() -> None:
     """Shut down the scheduler."""
     global _scheduler
     if _scheduler is not None:
-        try:
+        with suppress(Exception):
             _scheduler.shutdown(wait=False)
-        except Exception:
-            pass  # Event loop may already be closed
         _scheduler = None
         logger.info("Auto-merge scheduler stopped")
 
@@ -1440,7 +1356,7 @@ async def api_presets_save(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.delete("/api/presets/{name}")
@@ -1502,7 +1418,7 @@ async def api_set_default_template(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.get("/api/settings/schedule")
@@ -1566,7 +1482,7 @@ async def api_set_schedule(request: Request):
         raise
     except Exception as e:
         logger.exception(f"Schedule settings error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.delete("/api/media/merged")
@@ -1603,7 +1519,7 @@ async def api_delete_merged(request: Request):
         raise
     except Exception as e:
         logger.exception(f"Delete merged error: {e}")
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 # =============================================================================
@@ -1622,9 +1538,6 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
     Returns:
         JPEG image bytes
     """
-    import subprocess
-    import tempfile
-
     video = validate_path(video_path, "video_path", check_media_root=True)
     if not video.exists():
         raise HTTPException(
@@ -1655,8 +1568,6 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
                 status_code=500, detail={"status": "error", "message": "Frame extraction failed"}
             )  # noqa: E501
 
-        from fastapi.responses import FileResponse
-
         return FileResponse(
             tmp_path,
             media_type="image/jpeg",
@@ -1670,4 +1581,4 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
     except Exception as e:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e

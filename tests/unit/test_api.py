@@ -452,10 +452,13 @@ class TestApiSettingsValidation:
         client = TestClient(api_module.app)
 
         resp = self._post_settings(client, bottom_color="not-a-color")
-        assert resp.status_code == 200
+        assert resp.status_code == 422
         data = resp.json()
-        assert data["status"] == "error"
-        assert "Invalid bottom_color format" in data["message"]
+        assert data["detail"]["status"] == "error"
+        assert (
+            "bottom_color" in data["detail"]["message"]
+            or "not-a-color" in data["detail"]["message"]
+        )
         get_settings.cache_clear()
 
     def test_media_root_nonexistent_returns_error(self, tmp_path, monkeypatch):
@@ -476,8 +479,8 @@ class TestApiSettingsValidation:
         client = TestClient(api_module.app)
 
         resp = self._post_settings(client, media_root="/nonexistent/path/xyz")
-        assert resp.status_code == 200
+        assert resp.status_code == 422
         data = resp.json()
-        assert data["status"] == "error"
-        assert "media_root is not a directory" in data["message"]
+        assert data["detail"]["status"] == "error"
+        assert "media_root is not a directory" in data["detail"]["message"]
         get_settings.cache_clear()

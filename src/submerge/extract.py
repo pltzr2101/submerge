@@ -95,11 +95,13 @@ def extract_subtitles(
     try:
         subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
     except subprocess.TimeoutExpired:
-        raise SubtitleExtractionError("ffmpeg timeout - file may be corrupted")
+        raise SubtitleExtractionError("ffmpeg timeout - file may be corrupted") from None
     except subprocess.CalledProcessError as e:
         raise SubtitleExtractionError(f"ffmpeg failed: {e.stderr}") from e
     except FileNotFoundError:
-        raise SubtitleExtractionError("ffmpeg not found. Install ffmpeg: brew install ffmpeg")
+        raise SubtitleExtractionError(
+            "ffmpeg not found. Install ffmpeg: brew install ffmpeg"
+        ) from None
 
     if not output_path.exists():
         raise SubtitleExtractionError(f"Output file was not created: {output_path}")

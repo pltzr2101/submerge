@@ -89,13 +89,13 @@ def list_subtitle_tracks(video_path: str | Path) -> list[SubtitleTrack]:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
     except subprocess.TimeoutExpired:
-        raise ProbeError("ffprobe timeout - file may be corrupted")
+        raise ProbeError("ffprobe timeout - file may be corrupted") from None
     except subprocess.CalledProcessError as e:
         raise ProbeError(f"ffprobe failed: {e.stderr}") from e
     except FileNotFoundError:
         raise ProbeError(
             "ffprobe not found. Install ffmpeg and ensure it is in PATH (e.g., apt install ffmpeg)"
-        )
+        ) from None
 
     try:
         data = json.loads(result.stdout)

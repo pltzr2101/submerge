@@ -93,7 +93,7 @@ def sync_subtitles(
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
     except subprocess.TimeoutExpired:
-        raise SyncError("ffsubsync timeout - synchronization is taking too long")
+        raise SyncError("ffsubsync timeout - synchronization is taking too long") from None
     except subprocess.CalledProcessError as e:
         raise SyncError(f"ffsubsync failed:\n{e.stderr}") from e
 
@@ -170,7 +170,7 @@ def sync_subtitles_to_video(
         # Longer timeout for audio analysis
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)
     except subprocess.TimeoutExpired:
-        raise SyncError("ffsubsync timeout - audio analysis is taking too long")
+        raise SyncError("ffsubsync timeout - audio analysis is taking too long") from None
     except subprocess.CalledProcessError as e:
         raise SyncError(f"ffsubsync failed:\n{e.stderr}") from e
 
