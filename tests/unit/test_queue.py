@@ -20,10 +20,13 @@ from submerge.queue import (
 
 @pytest.fixture
 def queue_settings(tmp_path):
-    """Settings with tmp_path as media_root."""
+    """Settings with tmp_path as media_root and config_dir."""
+    (tmp_path / "media").mkdir(exist_ok=True)
+    (tmp_path / "config").mkdir(exist_ok=True)
     s = get_settings_for_test(
         pairs="de-ko",
-        media_root=str(tmp_path),
+        media_root=str(tmp_path / "media"),
+        config_dir=str(tmp_path / "config"),
     )
     init_db(s)
     return s
@@ -33,9 +36,9 @@ class TestEnqueueDequeue:
     """Tests for enqueue and dequeue operations."""
 
     def test_enqueue_creates_entry(self, tmp_path, queue_settings):
-        video = tmp_path / "Show.mkv"
+        video = tmp_path / "media" / "Show.mkv"
         video.touch()
-        (tmp_path / "Show.de.srt").touch()
+        (tmp_path / "media" / "Show.de.srt").touch()
 
         enqueue(video, queue_settings)
         entries = get_all_entries(settings=queue_settings)
@@ -44,9 +47,9 @@ class TestEnqueueDequeue:
         assert entries[0]["status"] == "pending"
 
     def test_enqueue_is_idempotent(self, tmp_path, queue_settings):
-        video = tmp_path / "Show.mkv"
+        video = tmp_path / "media" / "Show.mkv"
         video.touch()
-        (tmp_path / "Show.de.srt").touch()
+        (tmp_path / "media" / "Show.de.srt").touch()
 
         assert enqueue(video, queue_settings) is True  # New
         assert enqueue(video, queue_settings) is False  # Updated
@@ -55,7 +58,7 @@ class TestEnqueueDequeue:
         assert len(entries) == 1
 
     def test_dequeue_marks_done(self, tmp_path, queue_settings):
-        video = tmp_path / "Show.mkv"
+        video = tmp_path / "media" / "Show.mkv"
         video.touch()
 
         enqueue(video, queue_settings)
@@ -65,7 +68,7 @@ class TestEnqueueDequeue:
         assert entries[0]["status"] == "done"
 
     def test_dequeue_marks_failed(self, tmp_path, queue_settings):
-        video = tmp_path / "Show.mkv"
+        video = tmp_path / "media" / "Show.mkv"
         video.touch()
 
         enqueue(video, queue_settings)
@@ -76,7 +79,7 @@ class TestEnqueueDequeue:
         assert entries[0]["error_msg"] == "Test error"
 
     def test_remove_entry(self, tmp_path, queue_settings):
-        video = tmp_path / "Show.mkv"
+        video = tmp_path / "media" / "Show.mkv"
         video.touch()
 
         enqueue(video, queue_settings)
@@ -86,9 +89,9 @@ class TestEnqueueDequeue:
         assert len(entries) == 0
 
     def test_tracks_present_and_missing(self, tmp_path, queue_settings):
-        video = tmp_path / "Show.mkv"
+        video = tmp_path / "media" / "Show.mkv"
         video.touch()
-        (tmp_path / "Show.de.srt").touch()
+        (tmp_path / "media" / "Show.de.srt").touch()
         # No ko.srt
 
         enqueue(video, queue_settings)
@@ -101,25 +104,29 @@ class TestProcessQueue:
     """Tests for queue processing."""
 
     def test_merges_when_all_langs_present(self, tmp_path, queue_settings):
-        video = tmp_path / "Show.mkv"
+        video = tmp_path / "media" / "Show.mkv"
         video.touch()
-        (tmp_path / "Show.de.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
-        (tmp_path / "Show.ko.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\n테스트\n")
+        (tmp_path / "media" / "Show.de.srt").write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\nTest\n"
+        )
+        (tmp_path / "media" / "Show.ko.srt").write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n테스트\n"
+        )
 
         enqueue(video, queue_settings)
         result = process_queue(queue_settings)
 
         assert result["merged"] == 1
-        assert (tmp_path / "Show.de-ko.ass").exists()
+        assert (tmp_path / "media" / "Show.de-ko.ass").exists()
 
         # Entry should be marked done
         entries = get_all_entries(settings=queue_settings)
         assert entries[0]["status"] == "done"
 
     def test_keeps_pending_when_langs_missing(self, tmp_path, queue_settings):
-        video = tmp_path / "Show.mkv"
+        video = tmp_path / "media" / "Show.mkv"
         video.touch()
-        (tmp_path / "Show.de.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+        (tmp_path / "media" / "Show.de.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
 
         enqueue(video, queue_settings)
         result = process_queue(queue_settings)
@@ -130,7 +137,7 @@ class TestProcessQueue:
         assert entries[0]["status"] == "pending"
 
     def test_fails_on_missing_video(self, tmp_path, queue_settings):
-        video = tmp_path / "nonexistent.mkv"
+        video = tmp_path / "media" / "nonexistent.mkv"
 
         enqueue(video, queue_settings)  # We can enqueue a path that doesn't exist yet
         result = process_queue(queue_settings)
@@ -144,8 +151,8 @@ class TestGetPendingEntries:
     """Tests for filtering pending entries."""
 
     def test_returns_only_pending(self, tmp_path, queue_settings):
-        v1 = tmp_path / "Show1.mkv"
-        v2 = tmp_path / "Show2.mkv"
+        v1 = tmp_path / "media" / "Show1.mkv"
+        v2 = tmp_path / "media" / "Show2.mkv"
         v1.touch()
         v2.touch()
 

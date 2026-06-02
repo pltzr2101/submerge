@@ -8,6 +8,7 @@ import logging
 import re
 import shutil
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -104,21 +105,21 @@ templates = Jinja2Templates(directory=str(_templates_dir))
 
 # Runtime-overridable settings (in-memory, not persisted)
 _runtime_settings: dict[str, Any] = {}
+_runtime_settings_lock = threading.Lock()
 
 
 def _get_effective_settings() -> SubtoolsSettings:
     """Get settings with runtime overrides applied."""
     base = get_settings()
-    if not _runtime_settings:
-        return base
-
-    # Build overrides dict
-    overrides = {}
-    for key, val in _runtime_settings.items():
-        if key == "pairs":
-            overrides["pairs_raw"] = val
-        else:
-            overrides[key] = val
+    with _runtime_settings_lock:
+        if not _runtime_settings:
+            return base
+        overrides = {}
+        for key, val in _runtime_settings.items():
+            if key == "pairs":
+                overrides["pairs_raw"] = val
+            else:
+                overrides[key] = val
 
     # We need to reconstruct settings with overrides
     from .config import get_settings_for_test
@@ -155,6 +156,9 @@ def create_app() -> FastAPI:
             )
         from .queue import init_db, start_queue_worker, stop_queue_worker
         init_db()
+        # Ensure locks directory exists
+        locks_dir = Path(settings.config_dir) / "locks"
+        locks_dir.mkdir(parents=True, exist_ok=True)
         start_queue_worker()
         logger.info("Queue worker started")
 
@@ -849,50 +853,51 @@ async def api_settings(request: Request):
     try:
         body = await request.json()
 
-        # Validate and apply each setting
-        if "pairs" in body and body["pairs"]:
-            pairs_str = str(body["pairs"]).strip()
-            if pairs_str:
-                from .config import _parse_pairs_string
+        with _runtime_settings_lock:
+            # Validate and apply each setting
+            if "pairs" in body and body["pairs"]:
+                pairs_str = str(body["pairs"]).strip()
+                if pairs_str:
+                    from .config import _parse_pairs_string
+                    try:
+                        _parse_pairs_string(pairs_str)
+                        _runtime_settings["pairs"] = pairs_str
+                    except ValueError as e:
+                        return {"status": "error", "message": f"Invalid pairs: {e}"}
+
+            if "media_root" in body:
+                _runtime_settings["media_root"] = str(body["media_root"])
+
+            if "poll_interval" in body:
                 try:
-                    _parse_pairs_string(pairs_str)
-                    _runtime_settings["pairs"] = pairs_str
-                except ValueError as e:
-                    return {"status": "error", "message": f"Invalid pairs: {e}"}
+                    val = int(body["poll_interval"])
+                    if 10 <= val <= 3600:
+                        _runtime_settings["poll_interval"] = val
+                except (ValueError, TypeError):
+                    pass
 
-        if "media_root" in body:
-            _runtime_settings["media_root"] = str(body["media_root"])
+            if "bottom_color" in body:
+                color = str(body["bottom_color"]).strip()
+                if color:
+                    _runtime_settings["bottom_color"] = color
 
-        if "poll_interval" in body:
-            try:
-                val = int(body["poll_interval"])
-                if 10 <= val <= 3600:
-                    _runtime_settings["poll_interval"] = val
-            except (ValueError, TypeError):
-                pass
+            if "top_color" in body:
+                color = str(body["top_color"]).strip()
+                if color:
+                    _runtime_settings["top_color"] = color
 
-        if "bottom_color" in body:
-            color = str(body["bottom_color"]).strip()
-            if color:
-                _runtime_settings["bottom_color"] = color
+            if "fontsize" in body:
+                try:
+                    val = int(body["fontsize"])
+                    if 8 <= val <= 72:
+                        _runtime_settings["fontsize"] = val
+                except (ValueError, TypeError):
+                    pass
 
-        if "top_color" in body:
-            color = str(body["top_color"]).strip()
-            if color:
-                _runtime_settings["top_color"] = color
-
-        if "fontsize" in body:
-            try:
-                val = int(body["fontsize"])
-                if 8 <= val <= 72:
-                    _runtime_settings["fontsize"] = val
-            except (ValueError, TypeError):
-                pass
-
-        if "layout" in body:
-            layout = str(body["layout"]).strip()
-            if layout in ("top-bottom", "stacked"):
-                _runtime_settings["layout"] = layout
+            if "layout" in body:
+                layout = str(body["layout"]).strip()
+                if layout in ("top-bottom", "stacked"):
+                    _runtime_settings["layout"] = layout
 
         logger.info(f"Runtime settings updated: {list(_runtime_settings.keys())}")
         return {"status": "ok", "settings": _runtime_settings_to_response()}

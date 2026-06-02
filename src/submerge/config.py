@@ -65,7 +65,7 @@ class SubtoolsSettings(BaseSettings):
     - SUBTOOLS_MEDIA_ROOT: Root directory for media files, default "/data"
     - SUBTOOLS_POLL_INTERVAL: Polling interval in seconds for retry, default 60
     - SUBTOOLS_COLOR_BOTTOM: Hex color for bottom subtitle, default "#FFFFFF"
-    - SUBTOOLS_COLOR_TOP: Hex color for top subtitle, default "#FFFF00"
+    - SUBTOOLS_COLOR_TOP: Hex color for top subtitle, default "#FFD700"
     - SUBTOOLS_FONTSIZE: Font size (8-72), default 18
     - SUBTOOLS_LAYOUT: "top-bottom" or "stacked", default "top-bottom"
     """
@@ -95,14 +95,15 @@ class SubtoolsSettings(BaseSettings):
     rate_limit_rpm: int = 30  # 0 = disabled
 
     # Appearance
-    color_bottom: str = "#FFFFFF"
-    color_top: str = "#FFFF00"
     fontsize: int = 18
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
 
     # Bottom subtitle style (e.g., DE)
     bottom_fontsize: int = 20
-    bottom_color: str = "#FFFFFF"
+    bottom_color: str = Field(
+        default="#FFFFFF",
+        validation_alias="SUBTOOLS_COLOR_BOTTOM",
+    )
     bottom_outline_color: str = "#000000"
     bottom_outline: float = 2.0
     bottom_shadow: float = 1.0
@@ -114,7 +115,10 @@ class SubtoolsSettings(BaseSettings):
 
     # Top subtitle style (e.g., KO)
     top_fontsize: int = 18
-    top_color: str = "#FFD700"
+    top_color: str = Field(
+        default="#FFD700",
+        validation_alias="SUBTOOLS_COLOR_TOP",
+    )
     top_outline_color: str = "#000000"
     top_outline: float = 2.0
     top_shadow: float = 1.0
@@ -134,7 +138,7 @@ class SubtoolsSettings(BaseSettings):
         _parse_pairs_string(v)  # Raises ValueError if invalid
         return v
 
-    @field_validator("color_bottom", "color_top", "bottom_color", "top_color",
+    @field_validator("bottom_color", "top_color",
                      "bottom_outline_color", "top_outline_color")
     @classmethod
     def validate_hex_color(cls, v: str) -> str:

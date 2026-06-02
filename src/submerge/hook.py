@@ -262,11 +262,12 @@ def _polling_worker(
         cancel_event: Set to stop polling
     """
     poll_interval = settings.poll_interval
-    max_attempts = 30  # Max 30 retries (~30 min with 60s interval)
+    max_attempts = max(1, int(settings.retry_timeout_h * 3600 / max(poll_interval, 1)))
+    max_attempts = min(max_attempts, 500)  # Safety cap
 
     logger.info(
         f"Polling started for {video_path.name} "
-        f"(interval={poll_interval}s, max={max_attempts} attempts)"
+        f"(interval={poll_interval}s, max={max_attempts} attempts, ~{settings.retry_timeout_h}h)"
     )
 
     key = str(video_path.resolve())
@@ -344,8 +345,9 @@ def start_polling(
 
 
 def get_lock_path(video_path: Path) -> Path:
-    """Return the lock file path for a video."""
-    return video_path.parent / f".{video_path.stem}.sub-tools.lock"
+    """Return the lock file path for a video, stored in config_dir/locks."""
+    locks_dir = Path(get_settings().config_dir) / "locks"
+    return locks_dir / f"{video_path.stem}.lock"
 
 
 def process_bilingual_merge(

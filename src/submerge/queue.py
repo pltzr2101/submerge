@@ -16,11 +16,6 @@ from pathlib import Path
 from typing import Any
 
 from .config import SubtoolsSettings, get_settings
-from .hook import (
-    check_all_languages_present,
-    get_present_and_missing,
-    should_skip_existing,
-)
 from .models import QueueEntry
 
 logger = logging.getLogger(__name__)
@@ -29,7 +24,7 @@ logger = logging.getLogger(__name__)
 def _get_db_path(settings: SubtoolsSettings | None = None) -> Path:
     """Get the SQLite database path."""
     settings = settings or get_settings()
-    data_dir = Path(settings.media_root)
+    data_dir = Path(settings.config_dir)
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
     except (PermissionError, OSError):
@@ -51,19 +46,7 @@ def _get_connection(
         conn = sqlite3.connect(str(db_path))
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
-        return conn
-    except sqlite3.OperationalError as e:
-        logger.warning(f"Queue database unavailable: {e}")
-        return None
-
-
-def init_db(settings: SubtoolsSettings | None = None) -> None:
-    """Initialize the queue database table."""
-    db_path = _get_db_path(settings)
-    conn = _get_connection(db_path)
-    if conn is None:
-        return
-    try:
+        # Ensure table exists (self-healing)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pending_merges (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +64,16 @@ def init_db(settings: SubtoolsSettings | None = None) -> None:
             CREATE INDEX IF NOT EXISTS idx_status ON pending_merges(status)
         """)
         conn.commit()
-    finally:
+        return conn
+    except sqlite3.OperationalError as e:
+        logger.warning(f"Queue database unavailable: {e}")
+        return None
+
+
+def init_db(settings: SubtoolsSettings | None = None) -> None:
+    """Initialize the queue database (idempotent — safe to call repeatedly)."""
+    conn = _get_connection(settings=settings)
+    if conn:
         conn.close()
 
 
@@ -102,6 +94,7 @@ def enqueue(video_path: str | Path, settings: SubtoolsSettings | None = None) ->
     video = Path(video_path)
     now = datetime.now(timezone.utc).isoformat()
 
+    from .hook import get_present_and_missing
     present, missing = get_present_and_missing(video, settings)
 
     conn = _get_connection(settings=settings)
@@ -293,6 +286,7 @@ def process_queue(
             pass
 
         # Check if all languages are present now
+        from .hook import check_all_languages_present, should_skip_existing
         sub_paths = check_all_languages_present(video_path, settings)
         if sub_paths is None:
             # Update the missing/present info
