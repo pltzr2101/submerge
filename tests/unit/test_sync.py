@@ -226,3 +226,35 @@ class TestSyncSubtitlesToVideo:
         assert result.success is True
         assert result.output_path == output_file
         assert result.offset_ms == 100
+
+    def test_raises_when_subprocess_fails_to_video(self, tmp_path: Path):
+        """Error if ffsubsync returns non-zero for video sync."""
+        video = tmp_path / "video.mkv"
+        video.touch()
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        output_file = tmp_path / "output.srt"
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = subprocess.CalledProcessError(1, "ffs", stderr="sync error")
+            with pytest.raises(SyncError, match="ffsubsync failed"):
+                sync_subtitles_to_video(video, input_file, output_file)
+
+    def test_raises_when_output_not_created_to_video(self, tmp_path: Path):
+        """Error if output not created after video sync."""
+        video = tmp_path / "video.mkv"
+        video.touch()
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        output_file = tmp_path / "output.srt"
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with pytest.raises(SyncError, match="Output file was not created"):
+                sync_subtitles_to_video(video, input_file, output_file)

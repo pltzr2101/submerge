@@ -110,6 +110,26 @@ class TestListSubtitleTracks:
         ):
             list_subtitle_tracks(video)
 
+    def test_warns_on_multiple_en_tracks(self, tmp_path, caplog):
+        """Logs warning when multiple English tracks detected."""
+        import logging
+
+        video = tmp_path / "test.mkv"
+        video.touch()
+        mock_json = """
+        {"streams": [
+            {"index": 0, "codec_name": "subrip", "tags": {"language": "eng"},
+             "disposition": {"default": 0, "forced": 0}},
+            {"index": 1, "codec_name": "subrip", "tags": {"language": "eng"},
+             "disposition": {"default": 1, "forced": 0}}
+        ]}
+        """
+        caplog.set_level(logging.WARNING, logger="submerge.probe")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=mock_json)
+            list_subtitle_tracks(video)
+        assert "Multiple English" in caplog.text
+
 
 class TestSubtitleTrackDisplay:
     """Tests for SubtitleTrack.display_name."""

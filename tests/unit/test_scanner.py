@@ -31,6 +31,10 @@ class TestIsVideoFile:
     def test_rejects_directory(self):
         assert not _is_video_file(Path("/some/dir"))
 
+    def test_case_insensitive_extension(self):
+        assert _is_video_file(Path("movie.MKV"))
+        assert _is_video_file(Path("movie.MP4"))
+
 
 class TestScanDirectory:
     """Tests for directory scanning."""
@@ -112,6 +116,30 @@ class TestScanDirectory:
         assert entries[0].subtitle_status["de"]["present"] is True
         assert entries[0].subtitle_status["ko"]["present"] is True
 
+    def test_skips_non_video_files(self, tmp_path: Path):
+        """Non-video files are ignored."""
+        settings = get_settings_for_test(pairs="de-ko")
+        (tmp_path / "notes.txt").touch()
+        (tmp_path / "script.pdf").touch()
+
+        entries = list(scan_directory(tmp_path, settings))
+        assert entries == []
+
+    def test_nested_directories(self, tmp_path: Path):
+        """Finds video files in nested subdirectories."""
+        settings = get_settings_for_test(pairs="de-ko")
+        sub1 = tmp_path / "A" / "B"
+        sub1.mkdir(parents=True)
+        (sub1 / "video.mkv").touch()
+        sub2 = tmp_path / "C"
+        sub2.mkdir()
+        (sub2 / "movie.mp4").touch()
+
+        entries = list(scan_directory(tmp_path, settings))
+        assert len(entries) == 2
+        names = {e.video_name for e in entries}
+        assert names == {"video.mkv", "movie.mp4"}
+
 
 class TestFindVideosNeedingMerge:
     """Tests for finding videos needing merge."""
@@ -169,3 +197,15 @@ class TestEntryToDict:
         assert "ko" in d["required_langs"]
         assert "subtitle_status" in d
         assert "merged_status" in d
+
+    def test_entry_to_dict_without_settings(self, tmp_path: Path):
+        """entry_to_dict falls back to default settings when none given."""
+        settings = get_settings_for_test(pairs="de-ko")
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        (tmp_path / "Show.de.srt").touch()
+
+        entries = list(scan_directory(tmp_path, settings))
+        d = entry_to_dict(entries[0])
+        assert "pairs" in d
+        assert "required_langs" in d
