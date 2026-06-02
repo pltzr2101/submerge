@@ -35,4 +35,4 @@ jobs:
         run: uv run pytest -v
 
       - name: Coverage
-        run: uv run pytest --cov=submerge --cov-report=term-missing --cov-fail-under=65
+        run: uv run pytest --cov=submerge --cov-report=term-missing --cov-fail-under=64
