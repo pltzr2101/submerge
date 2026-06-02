@@ -180,6 +180,22 @@ def remove_entry(video_path: str | Path, settings: SubtoolsSettings | None = Non
         conn.close()
 
 
+def get_video_path_by_id(
+    entry_id: int, settings: SubtoolsSettings | None = None
+) -> str | None:
+    """Return video_path for a queue entry by id, or None if not found."""
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT video_path FROM pending_merges WHERE id = ?", (entry_id,)
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
 def get_pending_entries(settings: SubtoolsSettings | None = None) -> list[QueueEntry]:
     """Get all pending queue entries."""
     settings = settings or get_settings()
@@ -343,17 +359,17 @@ def start_queue_worker(settings: SubtoolsSettings | None = None) -> None:
     """Start the background queue processing worker."""
     global _worker_thread, _worker_stop
 
-    settings = settings or get_settings()
-    poll_interval = settings.poll_interval
-
     if _worker_thread is not None and _worker_thread.is_alive():
         return
 
     _worker_stop = threading.Event()
 
     def _worker():
-        logger.info(f"Queue worker started (interval={poll_interval}s)")
-        while not _worker_stop.wait(timeout=poll_interval):
+        logger.info("Queue worker started")
+        while True:
+            current_interval = (settings or get_settings()).poll_interval
+            if _worker_stop.wait(timeout=current_interval):
+                break
             try:
                 result = process_queue(settings)
                 if result["checked"] > 0 or result["merged"] > 0:

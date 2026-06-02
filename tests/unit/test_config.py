@@ -65,14 +65,6 @@ class TestSubtoolsSettingsComputedFields:
         settings = get_settings_for_test(pairs="fr-pl,en-pl,de-en")
         assert settings.required_langs == {"fr", "pl", "en", "de"}
 
-    def test_margin_top_stacked_calculation(self):
-        """Margin top is calculated from fontsize."""
-        settings = get_settings_for_test(fontsize=18)
-        assert settings.margin_top_stacked == 10 + int(18 * 2.5)  # 55
-
-        settings = get_settings_for_test(fontsize=24)
-        assert settings.margin_top_stacked == 10 + int(24 * 2.5)  # 70
-
 
 class TestSubtoolsSettingsFromEnv:
     """Tests with real environment variables."""

@@ -147,7 +147,7 @@ class SubtoolsSettings(BaseSettings):
             raise ValueError(f"Invalid color: '{v}'. Expected format: #RRGGBB")
         return v.upper()
 
-    @field_validator("fontsize")
+    @field_validator("fontsize", "bottom_fontsize", "top_fontsize")
     @classmethod
     def validate_fontsize(cls, v: int) -> int:
         """Validate fontsize range"""
@@ -170,13 +170,6 @@ class SubtoolsSettings(BaseSettings):
             langs.add(lang1)
             langs.add(lang2)
         return langs
-
-    @computed_field
-    @property
-    def margin_top_stacked(self) -> int:
-        """MarginV for top subtitle in stacked mode (computed)."""
-        return 10 + int(self.fontsize * 2.5)
-
 
 @lru_cache
 def get_settings() -> SubtoolsSettings:

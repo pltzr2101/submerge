@@ -794,54 +794,44 @@ def api_queue():
 @app.post("/api/queue/{entry_id}/remove")
 def api_queue_remove(entry_id: int):
     """Remove a queue entry by ID."""
-    from .queue import _get_connection, remove_entry
+    from .queue import get_video_path_by_id, remove_entry
 
     settings = _get_effective_settings()
-    conn = _get_connection(settings=settings)
-    if conn is None:
-        raise HTTPException(status_code=503, detail={"status": "error", "message": "Queue database unavailable"})  # noqa: E501
-    try:
-        row = conn.execute(
-            "SELECT video_path FROM pending_merges WHERE id = ?", (entry_id,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail={"status": "error", "message": "Entry not found"})  # noqa: E501
-        remove_entry(row[0], settings=settings)
-        return {"status": "ok"}
-    finally:
-        conn.close()
+    video_path = get_video_path_by_id(entry_id, settings=settings)
+    if video_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"status": "error", "message": "Entry not found"},
+        )
+    remove_entry(video_path, settings=settings)
+    return {"status": "ok"}
 
 
 @app.post("/api/queue/{entry_id}/retry")
 async def api_queue_retry(entry_id: int):
     """Retry a queue entry now."""
-    from .queue import _get_connection, dequeue
+    from .queue import dequeue, get_video_path_by_id
 
     settings = _get_effective_settings()
-    conn = _get_connection(settings=settings)
-    if conn is None:
-        raise HTTPException(status_code=503, detail={"status": "error", "message": "Queue database unavailable"})  # noqa: E501
-    try:
-        row = conn.execute(
-            "SELECT video_path FROM pending_merges WHERE id = ?", (entry_id,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail={"status": "error", "message": "Entry not found"})  # noqa: E501
-        video_path = Path(row[0])
-        sub_paths = check_all_languages_present(video_path, settings)
-        if sub_paths is None:
-            return {"status": "still_waiting", "message": "Not all languages present yet"}
-        from .hook import process_bilingual_merge, should_skip_existing
-        if should_skip_existing(video_path, sub_paths, settings):
-            dequeue(video_path, "done", settings=settings)
-            return {"status": "skipped", "reason": "already_exists"}
-        created = await run_in_threadpool(
-            process_bilingual_merge, video_path, sub_paths, settings
+    video_path = get_video_path_by_id(entry_id, settings=settings)
+    if video_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"status": "error", "message": "Entry not found"},
         )
+    video_path = Path(video_path)
+    sub_paths = check_all_languages_present(video_path, settings)
+    if sub_paths is None:
+        return {"status": "still_waiting", "message": "Not all languages present yet"}
+    from .hook import process_bilingual_merge, should_skip_existing
+    if should_skip_existing(video_path, sub_paths, settings):
         dequeue(video_path, "done", settings=settings)
-        return {"status": "merged", "files": [str(f) for f in created]}
-    finally:
-        conn.close()
+        return {"status": "skipped", "reason": "already_exists"}
+    created = await run_in_threadpool(
+        process_bilingual_merge, video_path, sub_paths, settings
+    )
+    dequeue(video_path, "done", settings=settings)
+    return {"status": "merged", "files": [str(f) for f in created]}
 
 
 @app.post("/api/settings")
