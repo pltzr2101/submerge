@@ -358,3 +358,126 @@ class TestRateLimitNotBypassedAfterIdle:
             )
 
         get_settings.cache_clear()
+
+
+class TestApiSettingsValidation:
+    """Tests for POST /api/settings input validation."""
+
+    @staticmethod
+    def _post_settings(client, **fields):
+        return client.post("/api/settings", json=dict(fields))
+
+    def test_stacked_gap_below_min_rejected(self, tmp_path, monkeypatch):
+        """stacked_gap < 4 is silently rejected, value unchanged."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+        from starlette.testclient import TestClient
+
+        client = TestClient(api_module.app)
+
+        resp = self._post_settings(client, stacked_gap=3)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        get_settings.cache_clear()
+
+    def test_stacked_gap_above_max_rejected(self, tmp_path, monkeypatch):
+        """stacked_gap > 200 is silently rejected."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+        from starlette.testclient import TestClient
+
+        client = TestClient(api_module.app)
+
+        resp = self._post_settings(client, stacked_gap=201)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        get_settings.cache_clear()
+
+    def test_stacked_gap_at_boundaries_accepted(self, tmp_path, monkeypatch):
+        """stacked_gap 4 and 200 are accepted."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+        from starlette.testclient import TestClient
+
+        client = TestClient(api_module.app)
+
+        resp = self._post_settings(client, stacked_gap=4)
+        assert resp.status_code == 200
+        resp = self._post_settings(client, stacked_gap=200)
+        assert resp.status_code == 200
+        get_settings.cache_clear()
+
+    def test_invalid_hex_color_returns_error(self, tmp_path, monkeypatch):
+        """Non-hex bottom_color returns error status."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+        from starlette.testclient import TestClient
+
+        client = TestClient(api_module.app)
+
+        resp = self._post_settings(client, bottom_color="not-a-color")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "error"
+        assert "Invalid bottom_color format" in data["message"]
+        get_settings.cache_clear()
+
+    def test_media_root_nonexistent_returns_error(self, tmp_path, monkeypatch):
+        """media_root pointing to non-existent path returns error."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+        from starlette.testclient import TestClient
+
+        client = TestClient(api_module.app)
+
+        resp = self._post_settings(client, media_root="/nonexistent/path/xyz")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "error"
+        assert "media_root is not a directory" in data["message"]
+        get_settings.cache_clear()

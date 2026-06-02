@@ -1031,7 +1031,15 @@ async def api_settings(request: Request):
                         return {"status": "error", "message": f"Invalid pairs: {e}"}
 
             if "media_root" in body:
-                _runtime_settings["media_root"] = str(body["media_root"])
+                from pathlib import Path
+
+                resolved = Path(str(body["media_root"])).resolve()
+                if not resolved.is_dir():
+                    return {
+                        "status": "error",
+                        "message": f"media_root is not a directory: {resolved}",
+                    }
+                _runtime_settings["media_root"] = str(resolved)
 
             if "poll_interval" in body:
                 try:
@@ -1041,15 +1049,25 @@ async def api_settings(request: Request):
                 except (ValueError, TypeError):
                     pass
 
-            if "bottom_color" in body:
-                color = str(body["bottom_color"]).strip()
-                if color:
-                    _runtime_settings["bottom_color"] = color
+            # --- Hex-validated colour fields ---
+            from .config import HEX_COLOR_PATTERN
 
-            if "top_color" in body:
-                color = str(body["top_color"]).strip()
-                if color:
-                    _runtime_settings["top_color"] = color
+            for field_name in (
+                "bottom_color",
+                "top_color",
+                "bottom_outline_color",
+                "top_outline_color",
+            ):
+                if field_name in body:
+                    color = str(body[field_name]).strip()
+                    if not color:
+                        continue
+                    if not HEX_COLOR_PATTERN.match(color):
+                        return {
+                            "status": "error",
+                            "message": f"Invalid {field_name} format: {color}",
+                        }
+                    _runtime_settings[field_name] = color.upper()
 
             # legacy — sets fontsize; prefer bottom_fontsize/top_fontsize
             if "fontsize" in body:
@@ -1080,6 +1098,57 @@ async def api_settings(request: Request):
                 layout = str(body["layout"]).strip()
                 if layout in ("top-bottom", "stacked"):
                     _runtime_settings["layout"] = layout
+
+            # --- Per-style margin fields ---
+            _INT_RANGES = {
+                "stacked_gap": (4, 200),
+                "bottom_margin_v": (0, 500),
+                "bottom_margin_h": (0, 500),
+                "top_margin_v": (0, 500),
+                "top_margin_h": (0, 500),
+            }
+            for field_name, (lo, hi) in _INT_RANGES.items():
+                if field_name in body:
+                    try:
+                        val = int(body[field_name])
+                        if lo <= val <= hi:
+                            _runtime_settings[field_name] = val
+                    except (ValueError, TypeError):
+                        pass
+
+            # --- Per-style float fields (outline, shadow) ---
+            _FLOAT_RANGES = {
+                "bottom_outline": (0.0, 10.0),
+                "top_outline": (0.0, 10.0),
+                "bottom_shadow": (0.0, 10.0),
+                "top_shadow": (0.0, 10.0),
+            }
+            for field_name, (lo, hi) in _FLOAT_RANGES.items():
+                if field_name in body:
+                    try:
+                        val = float(body[field_name])
+                        if lo <= val <= hi:
+                            _runtime_settings[field_name] = val
+                    except (ValueError, TypeError):
+                        pass
+
+            # --- Bold boolean flags ---
+            for field_name in ("bottom_bold", "top_bold"):
+                if field_name in body:
+                    try:
+                        val = bool(body[field_name])
+                        _runtime_settings[field_name] = val
+                    except (ValueError, TypeError):
+                        pass
+
+            # --- Font name strings ---
+            for field_name in ("font_bottom", "font_top"):
+                if field_name in body:
+                    try:
+                        val = str(body[field_name]).strip()[:128]
+                        _runtime_settings[field_name] = val
+                    except (ValueError, TypeError):
+                        pass
 
         logger.info(f"Runtime settings updated: {list(_runtime_settings.keys())}")
         return {"status": "ok", "settings": _runtime_settings_to_response()}
