@@ -104,8 +104,8 @@ class TestMergeConfigExpanded:
 
         settings = cfg_mod.SubtoolsSettings(
             SUBTOOLS_PAIRS="de-ko",
-            font_bottom="Arial",
-            font_top="Noto Sans CJK KR",
+            font_bottom="",
+            font_top="",
             bottom_bold=True,
             top_bold=False,
             bottom_outline=3.0,
@@ -137,8 +137,8 @@ class TestMergeConfigExpanded:
             assert mock_merge.called
             config = mock_merge.call_args[0][3]  # 4th positional arg
             assert isinstance(config, MergeConfig)
-            assert config.font_bottom == "Arial"
-            assert config.font_top == "Noto Sans CJK KR"
+            assert config.font_bottom == ""
+            assert config.font_top == ""
             assert config.bold_bottom is True
             assert config.bold_top is False
             assert config.outline == 3.0
@@ -175,7 +175,7 @@ class TestMergeConfigExpanded:
             config = mock_merge.call_args[0][3]
             # Backward compatibility: defaults
             assert config.font_bottom == ""  # empty string default
-            assert config.font_top == "Noto Sans CJK KR"
+            assert config.font_top == ""  # empty string default
             assert config.bold_bottom is False
             assert config.outline == 2.0
 

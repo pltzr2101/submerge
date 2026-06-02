@@ -153,8 +153,8 @@ def merge_bilingual(
     merged = SSAFile()
 
     # Resolve fonts, shadows, fontsize, outline
-    font_bottom = config.font_bottom or config.font_name or "Arial"
-    font_top = config.font_top or config.font_name or "Arial"
+    font_bottom = config.font_bottom or config.font_name or ""
+    font_top = config.font_top or config.font_name or ""
     shadow_bottom = config.shadow_bottom if config.shadow_bottom is not None else config.shadow
     shadow_top = config.shadow_top if config.shadow_top is not None else config.shadow
     fontsize_bottom = config.fontsize_bottom or config.fontsize

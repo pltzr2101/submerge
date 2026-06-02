@@ -260,7 +260,7 @@ class SubtoolsSettings(BaseSettings):
     bottom_margin_v: int = 30
     bottom_margin_h: int = 20
     bottom_spacing: float = 0.0
-    font_bottom: str = ""  # Empty = Arial as ASS fallback
+    font_bottom: str = ""  # Empty = OS system font fallback
 
     # Top subtitle style (e.g., KO)
     top_fontsize: int = 18
@@ -275,7 +275,7 @@ class SubtoolsSettings(BaseSettings):
     top_margin_v: int = 15
     top_margin_h: int = 20
     top_spacing: float = 0.0
-    font_top: str = "Noto Sans CJK KR"
+    font_top: str = ""  # Empty = OS system font fallback (CJK-safe)
 
     # Stacked layout
     stacked_gap: int = 8
