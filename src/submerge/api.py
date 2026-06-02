@@ -205,17 +205,14 @@ def create_app() -> FastAPI:
             now = time.monotonic()
             bucket = _rate_limits.setdefault(client, [])
             bucket[:] = [t for t in bucket if now - t < 60]
-            if not bucket:
-                _rate_limits.pop(client, None)
-                return await call_next(request)
-
-            if len(bucket) >= rate_limit_rpm:
+            bucket.append(now)
+            _rate_limits[client] = bucket
+            if len(bucket) > rate_limit_rpm:
                 return Response(
                     content=json.dumps({"detail": "Too many requests"}),
                     status_code=429,
                     media_type="application/json",
                 )
-            bucket.append(now)
             return await call_next(request)
 
     class BasicAuthMiddleware(BaseHTTPMiddleware):
@@ -468,7 +465,7 @@ def _handle_hook(video: str, subtitle: str, lang: str, source: str) -> dict:
     logger.info(f"[{source}] Hook: video={video_path.name}, lang={lang}")
 
     try:
-        result = process_hook(video_path, subtitle_path, lang)
+        result = process_hook(video_path, subtitle_path, lang, settings=settings)
 
         # Use 200 for all statuses, status is in the body
         response: dict = {"status": result.status}

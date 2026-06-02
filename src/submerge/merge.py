@@ -45,11 +45,6 @@ class MergeConfig:
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
 
 
-def _calculate_margin_top(fontsize: int) -> int:
-    """Calculate MarginV for the top subtitle in stacked mode."""
-    return 10 + int(fontsize * 2.5)
-
-
 def _hex_to_color(hex_color: str) -> Color:
     """Convert hex color (#RRGGBB) to pysubs2 Color.
 
