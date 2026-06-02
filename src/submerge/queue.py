@@ -11,6 +11,7 @@ import json
 import logging
 import sqlite3
 import threading
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -355,8 +356,17 @@ _worker_thread: threading.Thread | None = None
 _worker_stop: threading.Event | None = None
 
 
-def start_queue_worker(settings: SubtoolsSettings | None = None) -> None:
-    """Start the background queue processing worker."""
+def start_queue_worker(
+    settings: SubtoolsSettings | None = None,
+    settings_fn: Callable[[], SubtoolsSettings] | None = None,
+) -> None:
+    """Start the background queue processing worker.
+
+    Args:
+        settings: Static settings (used as fallback if settings_fn is not set).
+        settings_fn: Callable that returns current effective settings.
+                     Use this when settings can change at runtime (e.g. web UI).
+    """
     global _worker_thread, _worker_stop
 
     if _worker_thread is not None and _worker_thread.is_alive():
@@ -367,11 +377,12 @@ def start_queue_worker(settings: SubtoolsSettings | None = None) -> None:
     def _worker():
         logger.info("Queue worker started")
         while True:
-            current_interval = (settings or get_settings()).poll_interval
+            effective = settings_fn() if settings_fn else (settings or get_settings())
+            current_interval = effective.poll_interval
             if _worker_stop.wait(timeout=current_interval):
                 break
             try:
-                result = process_queue(settings)
+                result = process_queue(effective)
                 if result["checked"] > 0 or result["merged"] > 0:
                     logger.info(
                         f"Queue worker: checked={result['checked']}, "

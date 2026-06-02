@@ -159,7 +159,7 @@ def create_app() -> FastAPI:
         # Ensure locks directory exists
         locks_dir = Path(settings.config_dir) / "locks"
         locks_dir.mkdir(parents=True, exist_ok=True)
-        start_queue_worker()
+        start_queue_worker(settings_fn=_get_effective_settings)
         logger.info("Queue worker started")
 
         # ---- Auto-merge scheduler ----

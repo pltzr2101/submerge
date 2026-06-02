@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,10 @@ class MediaEntry:
     parent_dir: str  # Relative directory for grouping (e.g., "Show Name/Season 1")
     subtitle_status: dict[str, dict[str, Any]]
     # subtitle_status: {lang: {"present": bool, "path": str|None}}
+    merged_status: dict[str, dict[str, Any]] = field(default_factory=dict)
     # merged_status: {pair: {"present": bool, "path": str|None}}
+    all_langs_present: bool = False
+    all_merged: bool = False
 
 
 def _is_video_file(path: Path) -> bool:
@@ -55,9 +58,10 @@ def scan_directory(
 
     entries: list[MediaEntry] = []
 
-    for video_path in sorted(root.rglob("*")):
-        if not video_path.is_file() or not _is_video_file(video_path):
-            continue
+    video_files = [p for p in root.rglob("*") if p.is_file() and _is_video_file(p)]
+    video_files.sort()
+
+    for video_path in video_files:
 
         rel_path = video_path.relative_to(root)
         parent_dir = str(rel_path.parent) if str(rel_path.parent) != "." else "/"
@@ -87,18 +91,15 @@ def scan_directory(
         # Determine overall status
         all_langs_present = all(s["present"] for s in subtitle_status.values())
 
-        entry = MediaEntry(
+        entries.append(MediaEntry(
             video_path=str(video_path),
             video_name=video_path.name,
             parent_dir=parent_dir,
             subtitle_status=subtitle_status,
-        )
-        # Attach merged status
-        entry.merged_status = merged_status  # type: ignore[attr-defined]
-        entry.all_langs_present = all_langs_present  # type: ignore[attr-defined]
-        entry.all_merged = all_merged  # type: ignore[attr-defined]
-
-        entries.append(entry)
+            merged_status=merged_status,
+            all_langs_present=all_langs_present,
+            all_merged=all_merged,
+        ))
 
     return entries
 
@@ -119,7 +120,7 @@ def find_videos_needing_merge(
     entries = scan_directory(root_dir, settings)
     return [
         e for e in entries
-        if e.all_langs_present and not e.all_merged  # type: ignore[attr-defined]
+        if e.all_langs_present and not e.all_merged
     ]
 
 
@@ -131,9 +132,9 @@ def entry_to_dict(entry: MediaEntry, settings: SubtoolsSettings | None = None) -
         "video_name": entry.video_name,
         "parent_dir": entry.parent_dir,
         "subtitle_status": entry.subtitle_status,
-        "merged_status": getattr(entry, "merged_status", {}),
-        "all_langs_present": getattr(entry, "all_langs_present", False),
-        "all_merged": getattr(entry, "all_merged", False),
+        "merged_status": entry.merged_status,
+        "all_langs_present": entry.all_langs_present,
+        "all_merged": entry.all_merged,
         "pairs": [f"{b}-{t}" for b, t in settings.pairs],
         "required_langs": sorted(settings.required_langs),
     }
