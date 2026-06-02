@@ -1,6 +1,6 @@
 [project]
 name = "submerge"
-version = "2.0.3"
+version = "2.1.0"
 description = "Automatic bilingual subtitle merge service for ARR stacks"
 readme = "README.md"
 requires-python = ">=3.10"

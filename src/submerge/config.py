@@ -219,7 +219,6 @@ class SubtoolsSettings(BaseSettings):
     - SUBTOOLS_POLL_INTERVAL: Polling interval in seconds for retry, default 60
     - SUBTOOLS_COLOR_BOTTOM: Hex color for bottom subtitle, default "#FFFFFF"
     - SUBTOOLS_COLOR_TOP: Hex color for top subtitle, default "#FFD700"
-    - SUBTOOLS_FONTSIZE: Font size (8-72), default 18
     - SUBTOOLS_LAYOUT: "top-bottom" or "stacked", default "top-bottom"
     """
 
