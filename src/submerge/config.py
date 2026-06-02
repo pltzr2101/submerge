@@ -275,7 +275,7 @@ class SubtoolsSettings(BaseSettings):
     top_margin_v: int = 15
     top_margin_h: int = 20
     top_spacing: float = 0.0
-    font_top: str = "Noto Sans KR"
+    font_top: str = "Noto Sans CJK KR"
 
     # Stacked layout
     stacked_gap: int = 8

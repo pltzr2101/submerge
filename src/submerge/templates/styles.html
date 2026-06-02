@@ -119,7 +119,7 @@ const state = {
     top_margin_v: config.top_margin_v || 15,
     top_margin_h: config.top_margin_h || 20,
     top_spacing: config.top_spacing || 0,
-    font_top: config.font_top || 'Noto Sans KR',
+    font_top: config.font_top || 'Noto Sans CJK KR',
     layout: config.layout || 'top-bottom',
     stacked_gap: config.stacked_gap || 8,
 };
@@ -241,7 +241,7 @@ function buildField(target, prefix, labelPrefix) {
             <label>Font</label>
             <select id="${target}-font" data-key="font_${target}">
                 <optgroup label="CJK / Koreanisch">
-                    <option value="Noto Sans KR">Noto Sans KR</option>
+                    <option value="Noto Sans CJK KR">Noto Sans CJK KR</option>
                     <option value="Noto Sans CJK KR">Noto Sans CJK KR</option>
                     <option value="Malgun Gothic">Malgun Gothic (Samsung/Windows)</option>
                     <option value="Apple SD Gothic Neo">Apple SD Gothic Neo (tvOS)</option>
@@ -304,7 +304,7 @@ function buildField(target, prefix, labelPrefix) {
         </div>`;
 
     const container = document.getElementById('tab-' + target);
-    if (container) container.innerHTML = html + '<p class="preview-hint">Font tip: For Korean subtitles, use "Noto Sans KR"</p>';
+    if (container) container.innerHTML = html + '<p class="preview-hint">Font tip: For Korean subtitles, use "Noto Sans CJK KR"</p>';
 
     // Bind all controls
     setTimeout(() => {
@@ -321,7 +321,7 @@ function buildField(target, prefix, labelPrefix) {
         const fontSel = document.getElementById(target + '-font');
         const fontCustom = document.getElementById(target + '-font-custom');
         fontSel.value = state['font_' + target] || '';
-        if (fontSel.value === '') fontSel.value = target === 'top' ? 'Noto Sans KR' : '';
+        if (fontSel.value === '') fontSel.value = target === 'top' ? 'Noto Sans CJK KR' : '';
         if (![...fontSel.options].some(o => o.value === fontSel.value)) {
             fontSel.value = '__custom__';
             fontCustom.style.display = 'block';

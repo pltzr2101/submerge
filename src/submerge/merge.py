@@ -137,6 +137,18 @@ def merge_bilingual(
     logger.info(f"Loaded {sub1_path.name}: {len(subs1)} lines")
     logger.info(f"Loaded {sub2_path.name}: {len(subs2)} lines")
 
+    # Filter corrupt events where end <= start (zero/negative duration)
+    for path, subs in ((sub1_path, subs1), (sub2_path, subs2)):
+        for e in list(subs):
+            if e.end <= e.start:
+                logger.warning(
+                    f"Skipped corrupt event in {path.name}: "
+                    f"start={e.start} >= end={e.end}, text={e.text!r}"
+                )
+                subs.remove(e)
+    if len(subs1) == 0 and len(subs2) == 0:
+        raise InvalidSubtitleError("All events in both subtitle files are corrupt (end <= start)")
+
     # Create output file
     merged = SSAFile()
 
