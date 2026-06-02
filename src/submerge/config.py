@@ -252,7 +252,7 @@ class SubtoolsSettings(BaseSettings):
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
 
     # Bottom subtitle style (e.g., DE)
-    bottom_fontsize: int = 18
+    bottom_fontsize: int = 22
     bottom_color: str = Field(
         default="#FFFFFF",
         validation_alias="SUBTOOLS_COLOR_BOTTOM",
@@ -261,13 +261,13 @@ class SubtoolsSettings(BaseSettings):
     bottom_outline: float = 2.0
     bottom_shadow: float = 1.0
     bottom_bold: bool = False
-    bottom_margin_v: int = 30
+    bottom_margin_v: int = 20
     bottom_margin_h: int = 20
     bottom_spacing: float = 0.0
     font_bottom: str = ""  # Empty = OS system font fallback
 
     # Top subtitle style (e.g., KO)
-    top_fontsize: int = 18
+    top_fontsize: int = 22
     top_color: str = Field(
         default="#FFD700",
         validation_alias="SUBTOOLS_COLOR_TOP",
@@ -276,13 +276,13 @@ class SubtoolsSettings(BaseSettings):
     top_outline: float = 2.0
     top_shadow: float = 1.0
     top_bold: bool = False
-    top_margin_v: int = 15
+    top_margin_v: int = 20
     top_margin_h: int = 20
     top_spacing: float = 0.0
     font_top: str = ""  # Empty = OS system font fallback (CJK-safe)
 
     # Stacked layout
-    stacked_gap: int = 8
+    stacked_gap: int = 40
 
     @classmethod
     def with_overrides(cls, **overrides: Any) -> SubtoolsSettings:
