@@ -66,23 +66,25 @@ class TestSyncSubtitles:
             sync_subtitles(ref_file, input_file, tmp_path / "output.srt")
 
     def test_successful_sync(self, tmp_path: Path):
-        """Returns SyncResult on successful ffsubsync run."""
+        """Returns SyncResult with output_path == input_path (in-place)."""
         ref_file = tmp_path / "reference.srt"
         ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        output_file = tmp_path / "output.srt"
-        output_file.touch()
+        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output.write_text("1\n00:00:01,000 --> 00:00:02,000\nSynced\n")
 
         with (
             patch("shutil.which", return_value="/usr/bin/ffs"),
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="offset: 500ms", stderr="")
-            result = sync_subtitles(ref_file, input_file, output_file)
+            result = sync_subtitles(ref_file, input_file)
         assert result.success is True
-        assert result.output_path == output_file
+        assert result.output_path == input_file  # in-place
         assert result.offset_ms == 500
+        assert input_file.read_text() == "1\n00:00:01,000 --> 00:00:02,000\nSynced\n"
+        assert (tmp_path / "input.srt.bak").exists()
 
     def test_raises_when_subprocess_fails(self, tmp_path: Path):
         """Error if ffsubsync returns non-zero exit code."""
@@ -117,24 +119,25 @@ class TestSyncSubtitles:
                 sync_subtitles(ref_file, input_file, output_file)
 
     def test_warns_on_large_offset(self, tmp_path: Path, caplog):
-        """Logs warning when sync offset exceeds 5000ms."""
+        """Returns success=False when sync offset exceeds 30000ms."""
         import logging
 
         ref_file = tmp_path / "reference.srt"
         ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        output_file = tmp_path / "output.srt"
-        output_file.touch()
+        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output.write_text("synced")
 
         caplog.set_level(logging.WARNING, logger="submerge.sync")
         with (
             patch("shutil.which", return_value="/usr/bin/ffs"),
             patch("subprocess.run") as mock_run,
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="offset: 6000ms", stderr="")
-            sync_subtitles(ref_file, input_file, output_file)
-        assert "Large sync offset" in caplog.text
+            mock_run.return_value = MagicMock(returncode=0, stdout="offset: 35000ms", stderr="")
+            result = sync_subtitles(ref_file, input_file)
+        assert result.success is False
+        assert "Large offset detected" in caplog.text
 
 
 class TestSyncResult:
@@ -209,23 +212,25 @@ class TestSyncSubtitlesToVideo:
             sync_subtitles_to_video(video, input_file, output_file)
 
     def test_successful_sync_to_video(self, tmp_path: Path):
-        """Returns SyncResult on successful audio-based sync."""
+        """Returns SyncResult with output_path == input_path (in-place)."""
         video = tmp_path / "video.mkv"
         video.touch()
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        output_file = tmp_path / "output.srt"
-        output_file.touch()
+        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output.write_text("1\n00:00:01,000 --> 00:00:02,000\nSynced\n")
 
         with (
             patch("shutil.which", return_value="/usr/bin/ffs"),
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="shift: 100ms", stderr="")
-            result = sync_subtitles_to_video(video, input_file, output_file)
+            result = sync_subtitles_to_video(video, input_file)
         assert result.success is True
-        assert result.output_path == output_file
+        assert result.output_path == input_file  # in-place
         assert result.offset_ms == 100
+        assert input_file.read_text() == "1\n00:00:01,000 --> 00:00:02,000\nSynced\n"
+        assert (tmp_path / "input.srt.bak").exists()
 
     def test_raises_when_subprocess_fails_to_video(self, tmp_path: Path):
         """Error if ffsubsync returns non-zero for video sync."""

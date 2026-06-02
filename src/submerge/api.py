@@ -40,6 +40,7 @@ from .hook import (
     start_polling,
 )
 from .scanner import entry_to_dict, find_videos_needing_merge, scan_directory
+from .sync import FfsubsyncNotFoundError, SyncError, sync_subtitles, sync_subtitles_to_video
 
 # Configure logging for the whole app
 logging.basicConfig(
@@ -52,6 +53,16 @@ logger = logging.getLogger("submerge")
 
 # SSE log queue for streaming to UI - lazy init (Fix 1: avoid asyncio.Queue outside event loop)
 _log_queue: asyncio.Queue[str] | None = None
+
+# Per-file asyncio locks to serialize parallel sync calls on the same file
+_sync_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_sync_lock(path: str) -> asyncio.Lock:
+    """Return a per-file asyncio.Lock."""
+    if path not in _sync_locks:
+        _sync_locks[path] = asyncio.Lock()
+    return _sync_locks[path]
 
 
 def _get_log_queue() -> asyncio.Queue[str]:
@@ -785,85 +796,96 @@ async def api_batch_merge(request: Request):
 
 @app.post("/api/sync")
 async def api_sync(request: Request):
-    """Trigger subtitle synchronization."""
+    """Trigger subtitle synchronization with bidirectional pair logic.
+
+    *lang* is the language of the subtitle to synchronize (overwritten in-place).
+    The reference language is determined from the configured pairs:
+    - If *lang* is a bottom-language in a pair → reference is the top-language
+    - If *lang* is a top-language in a pair → reference is the bottom-language
+    """
     try:
         body = await request.json()
         subtitle_path_str = body.get("subtitle_path", "")
-        lang = body.get("lang", "")
+        lang = body.get("lang", "").strip()
 
         if not subtitle_path_str:
             raise HTTPException(
-                status_code=400, detail={"status": "error", "message": "subtitle_path required"}
-            )  # noqa: E501
+                status_code=400,
+                detail={"status": "error", "message": "subtitle_path required"},
+            )
 
         sub_path = validate_path(subtitle_path_str, "subtitle_path", check_media_root=True)
         settings = _get_effective_settings()
 
-        lang = lang.strip()
-        if lang and lang not in settings.required_langs:
+        if not sub_path.exists():
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "Subtitle file not found"},
+            )
+
+        # Determine reference language from configured pairs
+        ref_lang: str | None = None
+        for bottom, top in settings.pairs:
+            if lang == bottom:
+                ref_lang = top
+                break
+            if lang == top:
+                ref_lang = bottom
+                break
+
+        if ref_lang is None:
             raise HTTPException(
                 status_code=400,
                 detail={
                     "status": "error",
-                    "message": f"Unknown lang '{lang}'. Valid: {settings.required_langs}",
+                    "message": f"Language '{lang}' is not part of any configured pair",
                 },
             )
-
-        if not sub_path.exists():
-            raise HTTPException(
-                status_code=400, detail={"status": "error", "message": "Subtitle file not found"}
-            )  # noqa: E501
 
         # Robust video detection: peel language suffixes from the stem
         video_file = _find_video_for_subtitle(sub_path)
 
-        # Try to find reference subtitle in another language
-        ref_path = None
+        # Try to find reference subtitle
+        ref_path: Path | None = None
         if video_file is not None:
-            for other_lang in settings.required_langs:
-                if other_lang == lang:
-                    continue
-                ref_path = find_subtitle_path(video_file, other_lang)
-                if ref_path and str(ref_path) != str(sub_path):
-                    break
+            ref_path = find_subtitle_path(video_file, ref_lang)
+            if ref_path and str(ref_path) == str(sub_path):
                 ref_path = None
 
-        # Output path
-        output_path = sub_path.parent / f"{sub_path.stem}.synced{sub_path.suffix}"
-
-        try:
-            from .sync import (
-                FfsubsyncNotFoundError,
-                SyncError,
-                sync_subtitles,
-                sync_subtitles_to_video,
-            )
-        except ImportError:
+        if ref_path is None and video_file is None:
             return {
                 "status": "error",
-                "message": "ffsubsync not installed. Install: pip install 'submerge[sync]'",
-            }  # noqa: E501
+                "message": "No reference subtitle or video found for sync",
+            }
 
-        try:
-            if ref_path:
-                result = sync_subtitles(ref_path, sub_path, output_path)
-            elif video_file:
-                result = sync_subtitles_to_video(video_file, sub_path, output_path)
-            else:
-                return {
-                    "status": "error",
-                    "message": "No reference subtitle or video found for sync",
-                }  # noqa: E501
+        # Serialize parallel sync calls on the same file
+        async with _get_sync_lock(str(sub_path)):
+            try:
+                if ref_path:
+                    result = await asyncio.to_thread(sync_subtitles, ref_path, sub_path)
+                else:
+                    result = await asyncio.to_thread(
+                        sync_subtitles_to_video, video_file, sub_path
+                    )
+            except FfsubsyncNotFoundError:
+                return {"status": "error", "message": "ffsubsync not found"}
+            except SyncError as e:
+                return {"status": "error", "message": str(e)}
 
+        # Build response — use "warning" status for large-outcome cases
+        if result.success is False:
             return {
-                "status": "ok",
+                "status": "warning",
+                "message": "Sync applied but offset is very large (>30s), verify result",
                 "output": str(result.output_path),
                 "offset_ms": result.offset_ms,
             }
-        except FfsubsyncNotFoundError:
-            return {"status": "error", "message": "ffsubsync not found"}
-        except SyncError as e:
-            return {"status": "error", "message": str(e)}
+
+        return {
+            "status": "ok",
+            "output": str(result.output_path),
+            "offset_ms": result.offset_ms,
+        }
 
     except HTTPException:
         raise

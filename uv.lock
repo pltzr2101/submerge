@@ -1200,6 +1200,7 @@ dependencies = [
     { name = "charset-normalizer" },
     { name = "click" },
     { name = "fastapi" },
+    { name = "ffsubsync" },
     { name = "filelock" },
     { name = "jinja2" },
     { name = "pydantic" },
@@ -1213,15 +1214,11 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "ffsubsync" },
     { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-]
-sync = [
-    { name = "ffsubsync" },
 ]
 
 [package.metadata]
@@ -1231,8 +1228,7 @@ requires-dist = [
     { name = "charset-normalizer", specifier = ">=3.0" },
     { name = "click", specifier = ">=8.1" },
     { name = "fastapi", specifier = ">=0.110" },
-    { name = "ffsubsync", marker = "extra == 'dev'", specifier = ">=0.4.31" },
-    { name = "ffsubsync", marker = "extra == 'sync'", specifier = ">=0.4.31" },
+    { name = "ffsubsync", specifier = ">=0.4.31" },
     { name = "filelock", specifier = ">=3.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1" },
@@ -1248,7 +1244,7 @@ requires-dist = [
     { name = "starlette", specifier = ">=0.36" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
 ]
-provides-extras = ["sync", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "tomli"
