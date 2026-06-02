@@ -7,7 +7,6 @@ Tests removed: mock overload on endpoints (tested in integration).
 from __future__ import annotations
 
 import logging
-import time
 from unittest.mock import patch
 
 import pytest
@@ -300,8 +299,9 @@ class TestRateLimitNotBypassedAfterIdle:
         get_settings.cache_clear()
 
         # Use the module-level app (routes are registered there, not on create_app())
-        from submerge.api import app
         from starlette.testclient import TestClient
+
+        from submerge.api import app
         client = TestClient(app)
 
         t0 = 1_000_000_000.0  # High enough to trim all real entries
