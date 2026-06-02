@@ -176,6 +176,23 @@ body {
 
 .status-col { text-align: center; width: 50px; }
 .actions-col { white-space: nowrap; min-width: 150px; }
+.chk-col { width: 32px; text-align: center; padding: 8px 4px !important; }
+.chk-col input[type="checkbox"] {
+    width: 14px; height: 14px; cursor: pointer;
+    accent-color: var(--primary);
+}
+.batch-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+.batch-toolbar.hidden { display: none; }
+#batchCount { font-weight: 600; color: var(--primary); min-width: 80px; }
 .dir-cell { color: var(--text-muted); font-size: 0.8rem; }
 .video-name { font-weight: 500; }
 

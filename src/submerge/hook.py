@@ -416,6 +416,14 @@ def process_bilingual_merge(
 
     try:
         for lang_bottom, lang_top in settings.pairs:
+            # Fail fast with explicit message if a required language is missing
+            for lang in (lang_bottom, lang_top):
+                if lang not in sub_paths:
+                    raise ProcessingError(
+                        f"Missing subtitle for language '{lang}' "
+                        f"(needed for pair {lang_bottom}-{lang_top})"
+                    )
+
             output_path = get_output_path(video_path, lang_bottom, lang_top)
 
             logger.info(f"Merging {lang_bottom}-{lang_top}...")
@@ -522,7 +530,9 @@ def process_hook(
             )
 
     except Timeout:
-        logger.warning(f"Lock timeout for {video_path}")
+        logger.info(
+            f"Hook for {video_path.name}: already processing by polling worker — skipped"
+        )
         return HookResult(status="already_processing")
 
 

@@ -622,6 +622,104 @@ async def api_merge(request: Request):
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
 
 
+@app.post("/api/batch-merge")
+async def api_batch_merge(request: Request):
+    """Trigger re-merge for multiple videos at once.
+
+    Body (JSON):
+        video_paths: list[str]   — absolute paths to video files
+        template: str            — preset name or "" for effective settings
+        overwrite: bool          — if true, skip already_exists check (default true)
+
+    Returns:
+        {"results": [{"video": "<name>", "status": "merged"|"skipped"|"error", ...}, ...]}
+    """
+    try:
+        body = await request.json()
+        video_paths = body.get("video_paths", [])
+        if not video_paths or not isinstance(video_paths, list):
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "video_paths required (list of strings)"},
+            )
+
+        template_name = body.get("template", "").strip()
+        overwrite = body.get("overwrite", True)
+
+        # Resolve settings (possibly with template)
+        base_settings = _get_effective_settings()
+        merge_settings = base_settings
+        if template_name:
+            presets = _load_presets()
+            if template_name in presets:
+                from .config import get_settings_for_test
+                overrides = presets[template_name]
+                overrides["pairs_raw"] = base_settings.pairs_raw
+                known_fields = set(SubtoolsSettings.model_fields.keys())
+                overrides = {k: v for k, v in overrides.items() if k in known_fields}
+                merge_settings = get_settings_for_test(**overrides)
+
+        from .hook import check_all_languages_present, process_bilingual_merge, should_skip_existing
+
+        results: list[dict[str, Any]] = []
+
+        def _merge_one(video_path: Path) -> dict[str, Any]:
+            try:
+                if not video_path.exists():
+                    return {"video": video_path.name, "status": "error",
+                            "reason": "Video file not found"}
+
+                sub_paths = check_all_languages_present(video_path, merge_settings)
+                if sub_paths is None:
+                    from .hook import get_present_and_missing
+                    present, missing = get_present_and_missing(video_path, merge_settings)
+                    start_polling(video_path, merge_settings)
+                    return {
+                        "video": video_path.name,
+                        "status": "polling",
+                        "reason": f"Missing: {missing}",
+                    }
+
+                if not overwrite and should_skip_existing(video_path, sub_paths, merge_settings):
+                    return {"video": video_path.name, "status": "skipped",
+                            "reason": "already_exists"}
+
+                created_files = process_bilingual_merge(video_path, sub_paths, merge_settings)
+                return {
+                    "video": video_path.name,
+                    "status": "merged",
+                    "files": [str(f) for f in created_files],
+                }
+            except Exception as e:
+                logger.error(f"Batch re-merge error for {video_path.name}: {e}")
+                return {"video": video_path.name, "status": "error",
+                        "reason": str(e)}
+
+        loop = asyncio.get_running_loop()
+        for path_str in video_paths:
+            vp = validate_path(path_str, "video_paths[]")
+            result = await loop.run_in_executor(None, _merge_one, vp)
+            results.append(result)
+
+        merged_count = sum(1 for r in results if r["status"] == "merged")
+        skipped_count = sum(1 for r in results if r["status"] == "skipped")
+        error_count = sum(1 for r in results if r["status"] == "error")
+        polling_count = sum(1 for r in results if r["status"] == "polling")
+        logger.info(
+            f"Batch re-merge: {len(video_paths)} videos — "
+            f"{merged_count} merged, {skipped_count} skipped, "
+            f"{polling_count} polling, {error_count} errors"
+        )
+
+        return {"results": results}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Batch merge error: {e}")
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)})
+
+
 @app.post("/api/sync")
 async def api_sync(request: Request):
     """Trigger subtitle synchronization."""
@@ -727,6 +825,14 @@ def _run_scan(settings: SubtoolsSettings) -> dict:
                         sub_paths[lang] = p
 
                 if len(sub_paths) != len(settings.required_langs):
+                    missing_langs = [
+                        lang for lang in settings.required_langs
+                        if lang not in sub_paths
+                    ]
+                    logger.info(
+                        f"Scan {video_path.name}: missing {missing_langs}, "
+                        f"starting polling"
+                    )
                     start_polling(video_path, settings)
                     polling += 1
                     continue

@@ -163,13 +163,14 @@ class SubtoolsSettings(BaseSettings):
 
     @computed_field
     @property
-    def required_langs(self) -> set[str]:
-        """Required languages derived from pairs."""
-        langs = set()
-        for lang1, lang2 in self.pairs:
-            langs.add(lang1)
-            langs.add(lang2)
-        return langs
+    def required_langs(self) -> list[str]:
+        """Required languages in stable order derived from pairs."""
+        pairs = self.pairs
+        seen: dict[str, None] = {}
+        for bottom, top in pairs:
+            seen.setdefault(bottom, None)
+            seen.setdefault(top, None)
+        return list(seen.keys())
 
 @lru_cache
 def get_settings() -> SubtoolsSettings:

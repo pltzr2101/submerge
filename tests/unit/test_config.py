@@ -22,7 +22,7 @@ class TestSubtoolsSettingsDefaults:
         settings = get_settings_for_test()
 
         assert settings.pairs == []
-        assert settings.required_langs == set()
+        assert settings.required_langs == []
         assert settings.bottom_color == "#FFFFFF"
         assert settings.top_color == "#FFD700"
         assert settings.fontsize == 18
@@ -43,13 +43,13 @@ class TestSubtoolsSettingsPairs:
         """Parse a single pair."""
         settings = get_settings_for_test(pairs="fr-pl")
         assert settings.pairs == [("fr", "pl")]
-        assert settings.required_langs == {"fr", "pl"}
+        assert settings.required_langs == ["fr", "pl"]
 
     def test_parse_multiple_pairs(self):
         """Parse multiple pairs."""
         settings = get_settings_for_test(pairs="fr-pl,en-pl")
         assert settings.pairs == [("fr", "pl"), ("en", "pl")]
-        assert settings.required_langs == {"fr", "pl", "en"}
+        assert settings.required_langs == ["fr", "pl", "en"]
 
     def test_lowercase_normalization(self):
         """Codes are normalized to lowercase."""
@@ -63,7 +63,13 @@ class TestSubtoolsSettingsComputedFields:
     def test_required_langs_derived_from_multiple_pairs(self):
         """Required languages are derived from all pairs."""
         settings = get_settings_for_test(pairs="fr-pl,en-pl,de-en")
-        assert settings.required_langs == {"fr", "pl", "en", "de"}
+        assert settings.required_langs == ["fr", "pl", "en", "de"]
+
+    def test_required_langs_order_is_stable(self):
+        """required_langs order is stable across multiple instantiations."""
+        for _ in range(10):
+            s = get_settings_for_test(pairs="de-ko")
+            assert s.required_langs == ["de", "ko"], f"got {s.required_langs}"
 
 
 class TestSubtoolsSettingsFromEnv:

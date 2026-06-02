@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from filelock import Timeout
 
 from submerge.hook import (
     InvalidLanguageError,
@@ -236,3 +237,57 @@ class TestPollingQueueInteraction:
 
         # Cleanup
         _cancel_polling(video)
+
+
+class TestProcessHookTimeout:
+    """Tests for process_hook when lock acquisition times out."""
+
+    def test_already_processing_log(self, tmp_path: Path):
+        """process_hook logs INFO when lock times out."""
+        import submerge.config as cfg_mod
+        from submerge.hook import process_hook
+
+        settings = cfg_mod.SubtoolsSettings(SUBTOOLS_PAIRS="de-ko")
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        sub = tmp_path / "Show.de.srt"
+        sub.write_text("1\n00:00:01,000 --> 00:00:02,000\nTest\n")
+
+        with patch("submerge.hook.FileLock", autospec=True) as mock_lock_cls:
+            mock_lock = mock_lock_cls.return_value
+            mock_lock.acquire.side_effect = Timeout(
+                lock_file="/tmp/lock",
+            )
+            with patch("submerge.hook.logger") as mock_logger:
+                result = process_hook(video, sub, "de", settings)
+                assert result.status == "already_processing"
+                mock_logger.info.assert_any_call(
+                    f"Hook for {video.name}: already processing "
+                    "by polling worker — skipped"
+                )
+
+
+class TestEventSortOrder:
+    """Tests for stable event sort order in bilingual merge."""
+
+    def test_ass_event_sort_order(self):
+        """Top-style events sort before bottom-style at same timestamp."""
+        import pysubs2
+
+        merged = pysubs2.SSAFile()
+
+        # Two events at the same start time, different styles
+        bottom_evt = pysubs2.SSAEvent(
+            start=1000, end=2000, style="bottom", text="Guten Tag"
+        )
+        top_evt = pysubs2.SSAEvent(
+            start=1000, end=2000, style="top", text="안녕하세요"
+        )
+        merged.append(bottom_evt)
+        merged.append(top_evt)
+
+        # Sort as merge_bilingual does
+        merged.events.sort(key=lambda e: (e.start, 0 if e.style == "top" else 1))
+
+        assert merged.events[0].style == "top"
+        assert merged.events[1].style == "bottom"

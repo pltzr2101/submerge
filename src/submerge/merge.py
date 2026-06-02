@@ -206,8 +206,9 @@ def merge_bilingual(
         event.style = "top"
         merged.append(event)
 
-    # Sort by start time
-    merged.sort()
+    # Sort by start time, with top-style events preceding bottom-style
+    # events at the same timestamp (ensures consistent rendering order)
+    merged.events.sort(key=lambda e: (e.start, 0 if e.style == "top" else 1))
 
     # Save as ASS
     output_path.parent.mkdir(parents=True, exist_ok=True)

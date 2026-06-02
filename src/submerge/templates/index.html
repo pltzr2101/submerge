@@ -23,6 +23,7 @@
 <table class="media-table" id="mediaTable">
     <thead>
         <tr>
+            <th class="chk-col"><input type="checkbox" id="chkSelectAll" title="Select all" onchange="toggleSelectAll()"></th>
             <th>Video</th>
             <th>Directory</th>
             {% for lang in langs %}
@@ -38,6 +39,16 @@
         <tr><td colspan="100" class="loading-cell">Loading...</td></tr>
     </tbody>
 </table>
+
+<!-- Batch action toolbar -->
+<div id="batchToolbar" class="batch-toolbar hidden">
+    <span id="batchCount">0 selected</span>
+    <select id="batchTemplate" class="filter-select" style="margin: 0 8px;">
+        <option value="">Effective Settings</option>
+    </select>
+    <button id="btnBatchReMerge" class="btn btn-success" onclick="executeBatchReMerge()">Re-merge selected</button>
+    <a href="#" onclick="deselectAll(); return false;" style="margin-left: 12px; color: var(--text-muted);">Deselect all</a>
+</div>
 
 <!-- Template Picker Modal -->
 <div id="templateModal" class="modal-overlay hidden">
@@ -95,6 +106,7 @@ let pendingDeleteVideo = null;
 let selectedTemplate = '';
 let defaultTemplate = '';
 let templates = [];
+let batchMergeBusy = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filterSelect').addEventListener('change', (e) => {
@@ -133,6 +145,10 @@ async function loadTemplates() {
         const resp = await fetch('/api/presets');
         const data = await resp.json();
         templates = data.presets || [];
+        // Populate batch toolbar dropdown
+        const sel = document.getElementById('batchTemplate');
+        sel.innerHTML = '<option value="">Effective Settings</option>' +
+            templates.map(t => `<option value="${escAttr(t.name)}">${escHtml(t.name)}</option>`).join('');
     } catch (e) { /* ignore */ }
 }
 
@@ -202,6 +218,7 @@ function renderTable() {
         }
 
         let cells = '';
+        cells += `<td class="chk-col"><input type="checkbox" class="chk-video" data-video-path="${escAttr(entry.video_path)}" onchange="onCheckboxChange()"></td>`;
         cells += `<td><span class="video-name" title="${escAttr(entry.video_path)}">${escHtml(entry.video_name)}</span></td>`;
         cells += `<td class="dir-cell">${escHtml(entry.parent_dir)}</td>`;
 
@@ -222,6 +239,11 @@ function renderTable() {
 
         return `<tr class="${cls}">${cells}</tr>`;
     }).join('');
+
+    // Reset master checkbox and toolbar after re-render
+    document.getElementById('chkSelectAll').checked = false;
+    document.getElementById('chkSelectAll').indeterminate = false;
+    document.getElementById('batchToolbar').classList.add('hidden');
 }
 
 // === Modal handling ===
@@ -408,6 +430,82 @@ function showStatus(msg, type) {
 
 function showLoading(show) {
     document.getElementById('loadingSpinner').classList.toggle('hidden', !show);
+}
+
+// === Batch re-merge toolbar ===
+
+function toggleSelectAll() {
+    const master = document.getElementById('chkSelectAll');
+    const checked = master.checked;
+    const checkboxes = document.querySelectorAll('.chk-video');
+    checkboxes.forEach(cb => { cb.checked = checked; });
+    updateBatchToolbar();
+}
+
+function onCheckboxChange() {
+    const all = document.querySelectorAll('.chk-video');
+    const checked = document.querySelectorAll('.chk-video:checked');
+    const master = document.getElementById('chkSelectAll');
+    master.checked = checked.length === all.length && all.length > 0;
+    master.indeterminate = checked.length > 0 && checked.length < all.length;
+    updateBatchToolbar();
+}
+
+function deselectAll() {
+    document.getElementById('chkSelectAll').checked = false;
+    document.getElementById('chkSelectAll').indeterminate = false;
+    document.querySelectorAll('.chk-video').forEach(cb => { cb.checked = false; });
+    updateBatchToolbar();
+}
+
+function updateBatchToolbar() {
+    const checked = document.querySelectorAll('.chk-video:checked');
+    const toolbar = document.getElementById('batchToolbar');
+    document.getElementById('batchCount').textContent = `${checked.length} selected`;
+    toolbar.classList.toggle('hidden', checked.length === 0);
+}
+
+async function executeBatchReMerge() {
+    if (batchMergeBusy) return;
+    const checked = document.querySelectorAll('.chk-video:checked');
+    if (checked.length === 0) return;
+
+    batchMergeBusy = true;
+    const videoPaths = Array.from(checked).map(cb => cb.dataset.videoPath);
+    const template = document.getElementById('batchTemplate').value;
+    const btn = document.getElementById('btnBatchReMerge');
+    const origText = btn.textContent;
+    btn.textContent = `Merging ${videoPaths.length} videos\u2026`;
+    btn.disabled = true;
+
+    showStatus(`Re-merging ${videoPaths.length} videos\u2026`, 'info');
+    try {
+        const resp = await fetch('/api/batch-merge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({video_paths: videoPaths, template: template, overwrite: true}),
+        });
+        const data = await resp.json();
+        const results = data.results || [];
+        const merged = results.filter(r => r.status === 'merged').length;
+        const skipped = results.filter(r => r.status === 'skipped').length;
+        const errors = results.filter(r => r.status === 'error').length;
+        const polling = results.filter(r => r.status === 'polling').length;
+        const parts = [];
+        if (merged) parts.push(`${merged} merged`);
+        if (skipped) parts.push(`${skipped} skipped`);
+        if (polling) parts.push(`${polling} polling`);
+        if (errors) parts.push(`${errors} errors`);
+        const msg = 'Batch re-merge: ' + (parts.length ? parts.join(', ') : 'nothing to do');
+        showStatus(msg, errors > 0 ? 'warning' : 'success');
+    } catch (e) {
+        showStatus('Batch re-merge failed: ' + e.message, 'error');
+    }
+    btn.textContent = origText;
+    btn.disabled = false;
+    batchMergeBusy = false;
+    deselectAll();
+    setTimeout(loadMedia, 3000);
 }
 
 function connectLogStream() {

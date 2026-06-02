@@ -241,3 +241,47 @@ class TestMergeUnknownKeys:
         assert resp.status_code == 200
 
         get_settings.cache_clear()
+
+
+class TestBatchMerge:
+    """Tests for POST /api/batch-merge endpoint."""
+
+    @staticmethod
+    def _make_client(tmp_path, monkeypatch, pairs="fr-pl"):
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", pairs)
+        from submerge.config import get_settings
+        get_settings.cache_clear()
+
+        import importlib
+
+        from submerge import api as api_module
+        importlib.reload(api_module)
+
+        from starlette.testclient import TestClient
+        return TestClient(api_module.app), get_settings
+
+    def test_batch_merge_returns_results_list(self, tmp_path, monkeypatch):
+        """POST /api/batch-merge returns a results list."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch, "fr-pl")
+
+        # Create videos
+        video1 = tmp_path / "Movie1.mkv"
+        video1.touch()
+        video2 = tmp_path / "Movie2.mkv"
+        video2.touch()
+
+        resp = client.post("/api/batch-merge", json={
+            "video_paths": [str(video1), str(video2)],
+            "overwrite": True,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "results" in data
+        assert len(data["results"]) == 2
+        for r in data["results"]:
+            assert "video" in r
+            assert "status" in r
+
+        get_settings.cache_clear()
