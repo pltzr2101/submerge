@@ -1533,7 +1533,7 @@ async def api_delete_merged(request: Request):
 
 
 @app.get("/api/frame-extract")
-def api_frame_extract(video_path: str, timestamp_s: int = 30):
+async def api_frame_extract(video_path: str, timestamp_s: int = 30):
     """Extract a single frame from a video file via ffmpeg.
 
     Args:
@@ -1547,7 +1547,7 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
     if not video.exists():
         raise HTTPException(
             status_code=400, detail={"status": "error", "message": "Video not found"}
-        )  # noqa: E501
+        )
 
     tmp_path = None
     try:
@@ -1567,11 +1567,17 @@ def api_frame_extract(video_path: str, timestamp_s: int = 30):
             "2",
             tmp_path,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        def _run_ffmpeg():
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, _run_ffmpeg)
+
         if result.returncode != 0 or not Path(tmp_path).exists():
             raise HTTPException(
                 status_code=500, detail={"status": "error", "message": "Frame extraction failed"}
-            )  # noqa: E501
+            )
 
         return FileResponse(
             tmp_path,

@@ -165,7 +165,7 @@ def get_present_and_missing(
     settings = settings or get_settings()
     present = []
     missing = []
-    for lang in sorted(settings.required_langs):
+    for lang in settings.required_langs:
         if find_subtitle_path(video_path, lang):
             present.append(lang)
         else:

@@ -65,7 +65,8 @@ services:
       # Subtitle appearance
       - SUBTOOLS_COLOR_BOTTOM=#FFFFFF    # Bottom language color (German)
       - SUBTOOLS_COLOR_TOP=#FFD700       # Top language color (Korean, gold)
-      - SUBTOOLS_FONTSIZE=20             # Font size
+      - SUBTOOLS_BOTTOM_FONTSIZE=22     # Font size for bottom track
+      - SUBTOOLS_TOP_FONTSIZE=22        # Font size for top track
       - SUBTOOLS_FONT_TOP=Noto Sans KR   # CJK font for top (Korean)
       - SUBTOOLS_LAYOUT=top-bottom       # Layout: top-bottom or stacked
 
@@ -104,15 +105,25 @@ submerge merge de.srt ko.srt -o bilingual.ass
 |----------|---------|-------------|
 | `SUBTOOLS_COLOR_BOTTOM` | `#FFFFFF` | Bottom subtitle text color (hex) |
 | `SUBTOOLS_COLOR_TOP` | `#FFD700` | Top subtitle text color (hex) |
-| `SUBTOOLS_FONTSIZE` | `20` | Font size for both tracks |
-| `SUBTOOLS_LAYOUT` | `top-bottom` | Layout: `top-bottom` (one at top, one at bottom) or `stacked` (both at bottom) |
-| `SUBTOOLS_FONT_BOTTOM` | `""` | Font for bottom track (empty = Arial default) |
-| `SUBTOOLS_FONT_TOP` | `Noto Sans KR` | Font for top track (important for Korean/Chinese/Japanese) |
+| `SUBTOOLS_BOTTOM_FONTSIZE` | `22` | Font size for bottom track |
+| `SUBTOOLS_TOP_FONTSIZE` | `22` | Font size for top track |
+| `SUBTOOLS_FONTSIZE` | `18` | **Legacy** — sets both tracks. Prefer `BOTTOM_FONTSIZE`/`TOP_FONTSIZE` |
+| `SUBTOOLS_LAYOUT` | `top-bottom` | Layout: `top-bottom` or `stacked` (both at bottom) |
 | `SUBTOOLS_BOTTOM_OUTLINE` | `2.0` | Bottom text outline width |
 | `SUBTOOLS_TOP_OUTLINE` | `2.0` | Top text outline width |
-| `SUBTOOLS_BOTTOM_MARGIN_V` | `30` | Bottom track vertical margin (pixels from bottom) |
-| `SUBTOOLS_TOP_MARGIN_V` | `15` | Top track vertical margin (pixels from top) |
-| `SUBTOOLS_STACKED_GAP` | `8` | Gap between stacked subtitle lines |
+| `SUBTOOLS_BOTTOM_OUTLINE_COLOR` | `#000000` | Bottom text outline color |
+| `SUBTOOLS_TOP_OUTLINE_COLOR` | `#000000` | Top text outline color |
+| `SUBTOOLS_BOTTOM_SHADOW` | `1.0` | Bottom text shadow depth (0 = disabled) |
+| `SUBTOOLS_TOP_SHADOW` | `1.0` | Top text shadow depth (0 = disabled) |
+| `SUBTOOLS_BOTTOM_BOLD` | `false` | Bold for bottom track |
+| `SUBTOOLS_TOP_BOLD` | `false` | Bold for top track |
+| `SUBTOOLS_BOTTOM_MARGIN_V` | `20` | Bottom track vertical margin (pixels from bottom edge) |
+| `SUBTOOLS_TOP_MARGIN_V` | `20` | Top track vertical margin (pixels from top edge) |
+| `SUBTOOLS_BOTTOM_MARGIN_H` | `20` | Bottom track horizontal margin |
+| `SUBTOOLS_TOP_MARGIN_H` | `20` | Top track horizontal margin |
+| `SUBTOOLS_BOTTOM_SPACING` | `0.0` | Bottom track letter spacing |
+| `SUBTOOLS_TOP_SPACING` | `0.0` | Top track letter spacing |
+| `SUBTOOLS_STACKED_GAP` | `40` | Gap between stacked subtitle lines (only when `LAYOUT=stacked`) |
 
 ### Behavior
 

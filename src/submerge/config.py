@@ -349,7 +349,4 @@ def get_settings() -> SubtoolsSettings:
 
 def get_settings_for_test(**overrides) -> SubtoolsSettings:
     """Factory for tests — delegates to SubtoolsSettings.with_overrides."""
-    # Map user-friendly 'pairs' to internal 'pairs_raw', then delegate
-    if "pairs" in overrides:
-        overrides["pairs_raw"] = overrides.pop("pairs")
     return SubtoolsSettings.with_overrides(**overrides)
