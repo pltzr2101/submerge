@@ -212,18 +212,15 @@ class TestPollingQueueInteraction:
 
     def test_queue_skips_when_polling_active(self, tmp_path: Path):
         """Queue worker skips entries that are being polled."""
-        import threading
-
         import submerge.config as cfg_mod
-        from submerge.hook import get_polling_jobs
+        from submerge.hook import _cancel_polling, start_polling
         from submerge.queue import enqueue, process_queue
         settings = cfg_mod.SubtoolsSettings(SUBTOOLS_PAIRS="de-ko")
         video = tmp_path / "Movie.mkv"
         video.touch()
 
-        # Simulate active polling
-        polling_jobs = get_polling_jobs()
-        polling_jobs[str(video.resolve())] = threading.Event()
+        # Register a polling job via the public API
+        start_polling(video, settings)
 
         de_sub = tmp_path / "Movie.de.srt"
         de_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello\n")
@@ -238,4 +235,4 @@ class TestPollingQueueInteraction:
         assert result["still_pending"] >= 1 or result["merged"] == 0
 
         # Cleanup
-        polling_jobs.pop(str(video.resolve()), None)
+        _cancel_polling(video)

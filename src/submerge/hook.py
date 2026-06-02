@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from filelock import FileLock, Timeout
@@ -19,7 +20,9 @@ logger = logging.getLogger(__name__)
 LOCK_TIMEOUT = 5  # seconds
 
 # Track active polling jobs: video_path -> threading.Event (set to cancel)
+# Protected by _polling_jobs_lock for thread safety.
 _polling_jobs: dict[str, threading.Event] = {}
+_polling_jobs_lock: threading.Lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +246,8 @@ from .queue import dequeue, enqueue  # noqa: E402
 def _cancel_polling(video_path: Path) -> None:
     """Cancel any active polling for a video."""
     key = str(video_path.resolve())
-    event = _polling_jobs.pop(key, None)
+    with _polling_jobs_lock:
+        event = _polling_jobs.pop(key, None)
     if event is not None:
         event.set()
         logger.info(f"Polling cancelled for {video_path.name}")
@@ -253,51 +257,58 @@ def _polling_worker(
     video_path: Path,
     settings: SubtoolsSettings,
     cancel_event: threading.Event,
+    settings_fn: Callable[[], SubtoolsSettings] | None = None,
 ) -> None:
     """Background worker that polls for missing languages and triggers merge.
 
     Args:
         video_path: Path to video file
-        settings: Configuration
+        settings: Fallback configuration (used if settings_fn is None)
         cancel_event: Set to stop polling
+        settings_fn: Optional callable returning current effective settings
     """
-    poll_interval = settings.poll_interval
-    max_attempts = max(1, int(settings.retry_timeout_h * 3600 / max(poll_interval, 1)))
+    effective = settings_fn() if settings_fn else settings
+    poll_interval = effective.poll_interval
+    max_attempts = max(1, int(effective.retry_timeout_h * 3600 / max(poll_interval, 1)))
     max_attempts = min(max_attempts, 500)  # Safety cap
 
     logger.info(
         f"Polling started for {video_path.name} "
-        f"(interval={poll_interval}s, max={max_attempts} attempts, ~{settings.retry_timeout_h}h)"
+        f"(interval={poll_interval}s, max={max_attempts} attempts, ~{effective.retry_timeout_h}h)"
     )
 
     key = str(video_path.resolve())
     try:
         for attempt in range(1, max_attempts + 1):
-            if cancel_event.wait(timeout=poll_interval):
+            current_settings = settings_fn() if settings_fn else settings
+            current_interval = current_settings.poll_interval
+            if cancel_event.wait(timeout=current_interval):
                 logger.info(f"Polling cancelled for {video_path.name} after {attempt} attempts")
                 return
 
             try:
-                sub_paths = check_all_languages_present(video_path, settings)
+                sub_paths = check_all_languages_present(video_path, current_settings)
                 if sub_paths is not None:
                     logger.info(
                         f"All languages present for {video_path.name} (attempt {attempt})"
                     )
 
-                    if should_skip_existing(video_path, sub_paths, settings):
+                    if should_skip_existing(video_path, sub_paths, current_settings):
                         logger.info(f"Skipping {video_path.name}: outputs already up-to-date")
                         return
 
-                    created_files = process_bilingual_merge(video_path, sub_paths, settings)
+                    created_files = process_bilingual_merge(
+                        video_path, sub_paths, current_settings
+                    )
                     logger.info(
                         f"Polling merge complete for {video_path.name}: "
                         f"{[f.name for f in created_files]}"
                     )
                     # Mark queue entry as done
-                    dequeue(video_path, "done", settings=settings)
+                    dequeue(video_path, "done", settings=current_settings)
                     return
 
-                present, missing = get_present_and_missing(video_path, settings)
+                present, missing = get_present_and_missing(video_path, current_settings)
                 logger.debug(
                     f"Polling {video_path.name} (attempt {attempt}/{max_attempts}): "
                     f"present={present}, missing={missing}"
@@ -307,12 +318,14 @@ def _polling_worker(
 
         logger.warning(f"Polling exhausted for {video_path.name} after {max_attempts} attempts")
     finally:
-        _polling_jobs.pop(key, None)
+        with _polling_jobs_lock:
+            _polling_jobs.pop(key, None)
 
 
 def start_polling(
     video_path: Path,
     settings: SubtoolsSettings | None = None,
+    settings_fn: Callable[[], SubtoolsSettings] | None = None,
 ) -> bool:
     """Start a background polling job for a video.
 
@@ -320,7 +333,8 @@ def start_polling(
 
     Args:
         video_path: Path to video file
-        settings: Configuration
+        settings: Configuration (fallback)
+        settings_fn: Optional callable returning current effective settings
 
     Returns:
         True if polling was started
@@ -332,11 +346,12 @@ def start_polling(
 
     key = str(video_path.resolve())
     cancel_event = threading.Event()
-    _polling_jobs[key] = cancel_event
+    with _polling_jobs_lock:
+        _polling_jobs[key] = cancel_event
 
     thread = threading.Thread(
         target=_polling_worker,
-        args=(video_path, settings, cancel_event),
+        args=(video_path, settings, cancel_event, settings_fn),
         daemon=True,
         name=f"submerge-poll-{video_path.name}",
     )
@@ -509,19 +524,15 @@ def process_hook(
     except Timeout:
         logger.warning(f"Lock timeout for {video_path}")
         return HookResult(status="already_processing")
-    finally:
-        # Clean up lock file after use
-        try:
-            lock_path.unlink(missing_ok=True)
-        except Exception:
-            pass  # Ignore if file is still in use
 
 
 def get_active_polls() -> list[str]:
     """Return list of video paths currently being polled."""
-    return list(_polling_jobs.keys())
+    with _polling_jobs_lock:
+        return list(_polling_jobs.keys())
 
 
 def get_polling_jobs() -> dict[str, threading.Event]:
-    """Return the polling jobs dict for testing."""
-    return _polling_jobs
+    """Return a snapshot copy of the polling jobs dict (for testing)."""
+    with _polling_jobs_lock:
+        return dict(_polling_jobs)

@@ -277,7 +277,7 @@ def process_queue(
         from .hook import process_bilingual_merge as merge_fn
 
     settings = settings or get_settings()
-    timeout_hours = getattr(settings, "retry_timeout_h", 48)
+    timeout_hours = settings.retry_timeout_h
     pending = get_pending_entries(settings)
     if not pending:
         return {"checked": 0, "merged": 0, "failed": 0, "still_pending": 0}
