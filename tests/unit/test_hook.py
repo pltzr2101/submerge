@@ -214,7 +214,7 @@ class TestPollingQueueInteraction:
     def test_queue_skips_when_polling_active(self, tmp_path: Path):
         """Queue worker skips entries that are being polled."""
         import submerge.config as cfg_mod
-        from submerge.hook import _cancel_polling, start_polling
+        from submerge.hook import cancel_polling, start_polling
         from submerge.queue import enqueue, process_queue
         settings = cfg_mod.SubtoolsSettings(SUBTOOLS_PAIRS="de-ko")
         video = tmp_path / "Movie.mkv"
@@ -236,7 +236,7 @@ class TestPollingQueueInteraction:
         assert result["still_pending"] >= 1 or result["merged"] == 0
 
         # Cleanup
-        _cancel_polling(video)
+        cancel_polling(video)
 
 
 class TestProcessHookTimeout:

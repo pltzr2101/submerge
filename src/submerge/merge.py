@@ -24,12 +24,16 @@ class MergeConfig:
     color_bottom: str = "#FFFFFF"  # White
     color_top: str = "#FFFF00"  # Yellow
     fontsize: int = 20
+    fontsize_bottom: int = 20  # per-style override (falls back to fontsize)
+    fontsize_top: int = 18
     font_name: str = "Roboto"
     font_bottom: str = ""  # Empty = inherit font_name
     font_top: str = ""  # Empty = inherit font_name
     bold_bottom: bool = False
     bold_top: bool = False
     outline: float = 2.0
+    outline_bottom: float = 2.0  # per-style override (falls back to outline)
+    outline_top: float = 2.0
     outline_color_bottom: str = "#000000"
     outline_color_top: str = "#000000"
     shadow: float = 0.0  # Disabled by default - cleaner look
@@ -124,11 +128,15 @@ def merge_bilingual(
     # Create output file
     merged = SSAFile()
 
-    # Resolve fonts and shadows
+    # Resolve fonts, shadows, fontsize, outline
     font_bottom = config.font_bottom or config.font_name or "Arial"
     font_top = config.font_top or config.font_name or "Arial"
     shadow_bottom = config.shadow_bottom if config.shadow_bottom is not None else config.shadow
     shadow_top = config.shadow_top if config.shadow_top is not None else config.shadow
+    fontsize_bottom = config.fontsize_bottom or config.fontsize
+    fontsize_top = config.fontsize_top or config.fontsize
+    outline_bottom = config.outline_bottom or config.outline
+    outline_top = config.outline_top or config.outline
 
     bold_bottom = -1 if config.bold_bottom else 0
     bold_top = -1 if config.bold_top else 0
@@ -140,7 +148,7 @@ def merge_bilingual(
 
         merged.styles["bottom"] = SSAStyle(
             fontname=font_bottom,
-            fontsize=config.fontsize,
+            fontsize=fontsize_bottom,
             bold=bold_bottom,
             primarycolor=_hex_to_color(config.color_bottom),
             outlinecolor=_hex_to_color(config.outline_color_bottom),
@@ -148,13 +156,13 @@ def merge_bilingual(
             marginv=config.margin_v_bottom,
             marginl=config.margin_h_bottom,
             marginr=config.margin_h_bottom,
-            outline=config.outline,
+            outline=outline_bottom,
             shadow=shadow_bottom,
             spacing=config.spacing_bottom,
         )
         merged.styles["top"] = SSAStyle(
             fontname=font_top,
-            fontsize=config.fontsize,
+            fontsize=fontsize_top,
             bold=bold_top,
             primarycolor=_hex_to_color(config.color_top),
             outlinecolor=_hex_to_color(config.outline_color_top),
@@ -162,7 +170,7 @@ def merge_bilingual(
             marginv=margin_top_calc,
             marginl=config.margin_h_top,
             marginr=config.margin_h_top,
-            outline=config.outline,
+            outline=outline_top,
             shadow=shadow_top,
             spacing=config.spacing_top,
         )
@@ -170,7 +178,7 @@ def merge_bilingual(
         # top-bottom (default): one at top, one at bottom
         merged.styles["bottom"] = SSAStyle(
             fontname=font_bottom,
-            fontsize=config.fontsize,
+            fontsize=fontsize_bottom,
             bold=bold_bottom,
             primarycolor=_hex_to_color(config.color_bottom),
             outlinecolor=_hex_to_color(config.outline_color_bottom),
@@ -178,13 +186,13 @@ def merge_bilingual(
             marginv=config.margin_v_bottom,
             marginl=config.margin_h_bottom,
             marginr=config.margin_h_bottom,
-            outline=config.outline,
+            outline=outline_bottom,
             shadow=shadow_bottom,
             spacing=config.spacing_bottom,
         )
         merged.styles["top"] = SSAStyle(
             fontname=font_top,
-            fontsize=config.fontsize,
+            fontsize=fontsize_top,
             bold=bold_top,
             primarycolor=_hex_to_color(config.color_top),
             outlinecolor=_hex_to_color(config.outline_color_top),
@@ -192,7 +200,7 @@ def merge_bilingual(
             marginv=config.margin_v_top,
             marginl=config.margin_h_top,
             marginr=config.margin_h_top,
-            outline=config.outline,
+            outline=outline_top,
             shadow=shadow_top,
             spacing=config.spacing_top,
         )

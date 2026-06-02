@@ -120,8 +120,25 @@ def _get_effective_settings() -> SubtoolsSettings:
                 overrides["pairs_raw"] = val
             else:
                 overrides[key] = val
+        from .config import get_settings_for_test
+        return get_settings_for_test(**overrides)
 
-    # We need to reconstruct settings with overrides
+
+def _apply_template(
+    base_settings: SubtoolsSettings,
+    template_name: str,
+) -> SubtoolsSettings:
+    """Return new settings with the named template applied, or base_settings
+    if template_name is empty/unknown."""
+    if not template_name:
+        return base_settings
+    presets = _load_presets()
+    if template_name not in presets:
+        return base_settings
+    overrides = dict(presets[template_name])  # shallow copy fixes mutation
+    overrides["pairs_raw"] = base_settings.pairs_raw
+    known_fields = set(SubtoolsSettings.model_fields.keys())
+    overrides = {k: v for k, v in overrides.items() if k in known_fields}
     from .config import get_settings_for_test
     return get_settings_for_test(**overrides)
 
@@ -205,6 +222,9 @@ def create_app() -> FastAPI:
             now = time.monotonic()
             bucket = _rate_limits.setdefault(client, [])
             bucket[:] = [t for t in bucket if now - t < 60]
+            if not bucket:
+                del _rate_limits[client]
+                return await call_next(request)
             bucket.append(now)
             _rate_limits[client] = bucket
             if len(bucket) > rate_limit_rpm:
@@ -330,19 +350,16 @@ def _find_video_for_subtitle(sub_path: Path) -> Path | None:
     video_exts = (".mkv", ".mp4", ".avi", ".m4v")
     stem = sub_path.stem
 
-    # Keep peeling suffixes until find a video or no dots left
-    while "." in stem:
+    # Keep peeling suffixes until find a video or no dots left.
+    # Check each stem, including the final dot-free form, inside the loop.
+    while True:
         for ext in video_exts:
             candidate = sub_path.parent / (stem + ext)
             if candidate.exists():
                 return candidate
+        if "." not in stem:
+            break
         stem = stem.rsplit(".", 1)[0]
-
-    # Last try: the stem as-is
-    for ext in video_exts:
-        candidate = sub_path.parent / (stem + ext)
-        if candidate.exists():
-            return candidate
 
     return None
 
@@ -361,7 +378,7 @@ async def ui_index(request: Request):
         "index.html",
         {
             "pairs": [f"{b}-{t}" for b, t in settings.pairs],
-            "langs": sorted(settings.required_langs),
+            "langs": settings.required_langs,
         },
     )
 
@@ -563,23 +580,12 @@ async def api_merge(request: Request):
         if not video_path_str:
             raise HTTPException(status_code=400, detail={"status": "error", "message": "video_path required"})  # noqa: E501
 
-        video_path = validate_path(video_path_str, "video_path")
+        video_path = validate_path(video_path_str, "video_path", check_media_root=True)
         overwrite = body.get("overwrite", False)
         template_name = body.get("template", "").strip()
 
         settings = _get_effective_settings()
-        # Apply template styles if specified
-        merge_settings = settings
-        if template_name:
-            presets = _load_presets()
-            if template_name in presets:
-                from .config import get_settings_for_test
-                overrides = presets[template_name]
-                overrides["pairs_raw"] = settings.pairs_raw
-                # Defense-in-depth: filter out unknown keys (e.g. UI-only fields)
-                known_fields = set(SubtoolsSettings.model_fields.keys())
-                overrides = {k: v for k, v in overrides.items() if k in known_fields}
-                merge_settings = get_settings_for_test(**overrides)
+        merge_settings = _apply_template(settings, template_name)
 
         # Find subtitle paths for all required languages
         from .hook import check_all_languages_present, process_bilingual_merge, should_skip_existing
@@ -601,8 +607,8 @@ async def api_merge(request: Request):
             return {"status": "skipped", "reason": "already_exists"}
 
         # Run merge in thread to not block uvicorn worker
-        from .hook import _cancel_polling
-        _cancel_polling(video_path)
+        from .hook import cancel_polling
+        cancel_polling(video_path)
 
         loop = asyncio.get_running_loop()
         created_files = await loop.run_in_executor(
@@ -648,22 +654,19 @@ async def api_batch_merge(request: Request):
 
         # Resolve settings (possibly with template)
         base_settings = _get_effective_settings()
-        merge_settings = base_settings
-        if template_name:
-            presets = _load_presets()
-            if template_name in presets:
-                from .config import get_settings_for_test
-                overrides = presets[template_name]
-                overrides["pairs_raw"] = base_settings.pairs_raw
-                known_fields = set(SubtoolsSettings.model_fields.keys())
-                overrides = {k: v for k, v in overrides.items() if k in known_fields}
-                merge_settings = get_settings_for_test(**overrides)
+        merge_settings = _apply_template(base_settings, template_name)
 
         from .hook import check_all_languages_present, process_bilingual_merge, should_skip_existing
 
-        results: list[dict[str, Any]] = []
+        _batch_semaphore = asyncio.Semaphore(4)
 
-        def _merge_one(video_path: Path) -> dict[str, Any]:
+        async def _merge_one(video_path: Path) -> dict[str, Any]:
+            async with _batch_semaphore:
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, _check_one, video_path
+                )
+
+        def _check_one(video_path: Path) -> dict[str, Any]:
             try:
                 if not video_path.exists():
                     return {"video": video_path.name, "status": "error",
@@ -695,11 +698,11 @@ async def api_batch_merge(request: Request):
                 return {"video": video_path.name, "status": "error",
                         "reason": str(e)}
 
-        loop = asyncio.get_running_loop()
-        for path_str in video_paths:
-            vp = validate_path(path_str, "video_paths[]")
-            result = await loop.run_in_executor(None, _merge_one, vp)
-            results.append(result)
+        tasks = [
+            _merge_one(validate_path(p, "video_paths[]", check_media_root=True))
+            for p in video_paths
+        ]
+        results = list(await asyncio.gather(*tasks))
 
         merged_count = sum(1 for r in results if r["status"] == "merged")
         skipped_count = sum(1 for r in results if r["status"] == "skipped")
@@ -804,7 +807,13 @@ def api_scan(background_tasks: BackgroundTasks):
     Progress is logged and visible via /logs/stream.
     """
     settings = _get_effective_settings()
-    background_tasks.add_task(_run_scan, settings)
+    app_settings = _load_app_settings()
+    scan_settings = _apply_template(
+        settings,
+        app_settings.get("schedule_template", "")
+        or app_settings.get("default_template", ""),
+    )
+    background_tasks.add_task(_run_scan, scan_settings)
     return {"status": "started", "message": "Scan running in background, see /logs/stream for progress"}  # noqa: E501
 
 
@@ -1109,24 +1118,10 @@ def _get_schedule_defaults() -> dict[str, Any]:
 
 def _get_schedule_merge_settings() -> SubtoolsSettings:
     """Build SubtoolsSettings for an auto-merge run using the configured template."""
-    from .config import get_settings_for_test  # noqa: F811
-
     base = _get_effective_settings()
-    app = _load_app_settings()
-    template = app.get("schedule_template", "") or app.get("default_template", "")
-
-    if template:
-        presets = _load_presets()
-        if template in presets:
-            overrides = dict(presets[template])
-            overrides["pairs_raw"] = base.pairs_raw
-
-            # Defense-in-depth: filter out unknown keys (e.g. UI-only fields)
-            known_fields = set(SubtoolsSettings.model_fields.keys())
-            overrides = {k: v for k, v in overrides.items() if k in known_fields}
-
-            return get_settings_for_test(**overrides)
-    return base
+    app_settings = _load_app_settings()
+    template = app_settings.get("schedule_template", "") or app_settings.get("default_template", "")
+    return _apply_template(base, template)
 
 
 def _start_scheduler(

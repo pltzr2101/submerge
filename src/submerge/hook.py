@@ -243,7 +243,7 @@ from .queue import dequeue, enqueue  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def _cancel_polling(video_path: Path) -> None:
+def cancel_polling(video_path: Path) -> None:
     """Cancel any active polling for a video."""
     key = str(video_path.resolve())
     with _polling_jobs_lock:
@@ -342,7 +342,7 @@ def start_polling(
     settings = settings or get_settings()
 
     # Cancel any existing polling for this file
-    _cancel_polling(video_path)
+    cancel_polling(video_path)
 
     key = str(video_path.resolve())
     cancel_event = threading.Event()
@@ -394,11 +394,15 @@ def process_bilingual_merge(
         color_bottom=settings.bottom_color,
         color_top=settings.top_color,
         fontsize=settings.fontsize,
+        fontsize_bottom=settings.bottom_fontsize,
+        fontsize_top=settings.top_fontsize,
         font_bottom=settings.font_bottom,
         font_top=settings.font_top,
         bold_bottom=settings.bottom_bold,
         bold_top=settings.top_bold,
         outline=settings.bottom_outline,
+        outline_bottom=settings.bottom_outline,
+        outline_top=settings.top_outline,
         outline_color_bottom=settings.bottom_outline_color,
         outline_color_top=settings.top_outline_color,
         shadow=0.0,
@@ -516,7 +520,7 @@ def process_hook(
                 )
 
             # Cancel any active polling since we're merging now
-            _cancel_polling(video_path)
+            cancel_polling(video_path)
 
             # Mark queue entry as done
             dequeue(video_path, "done", settings=settings)

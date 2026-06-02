@@ -81,7 +81,26 @@ class TestMergeConfig:
         assert config.color_bottom == "#FFFFFF"
         assert config.color_top == "#FFFF00"
         assert config.fontsize == 20
+        assert config.fontsize_bottom == 20
+        assert config.fontsize_top == 18
         assert config.font_name == "Roboto"
         assert config.outline == 2.0
+        assert config.outline_bottom == 2.0
+        assert config.outline_top == 2.0
         assert config.shadow == 0.0
         assert config.layout == "top-bottom"
+
+    def test_per_style_fontsize(self, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path):
+        """merge_bilingual applies distinct fontsize_bottom/fontsize_top."""
+        config = MergeConfig(
+            fontsize=14,
+            fontsize_bottom=22,
+            fontsize_top=16,
+        )
+        output = tmp_path / "output.ass"
+
+        merge_bilingual(sample_srt_fr, sample_srt_pl, output, config)
+
+        subs = pysubs2.load(str(output))
+        assert subs.styles["bottom"].fontsize == 22
+        assert subs.styles["top"].fontsize == 16
