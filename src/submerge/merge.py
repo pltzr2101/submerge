@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import logging
+import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +72,24 @@ def _hex_to_color(hex_color: str) -> Color:
 
     # pysubs2 Color: (r, g, b, a) where a=0 means opaque
     return Color(r, g, b, 0)
+
+
+# Regex to strip inline alignment/position/move overrides from subtitle text.
+# Tags like {\an8}, {\an2}, {\pos(100,200)}, {\move(...)} override the
+# per-style alignment set by merge_bilingual and must be removed.
+_ALIGNMENT_OVERRIDE_RE = re.compile(
+    r"\{[^}]*\\(?:an\d|pos\([^)]*\)|move\([^)]*\))[^}]*\}",
+    re.IGNORECASE,
+)
+
+
+def _clean_event(event, style_name: str):
+    """Return a shallow copy of *event* with alignment/position overrides
+    stripped from its text and *style_name* assigned."""
+    ev = copy.copy(event)
+    ev.text = _ALIGNMENT_OVERRIDE_RE.sub("", ev.text)
+    ev.style = style_name
+    return ev
 
 
 def _load_subtitle_file(path: Path) -> SSAFile:
@@ -246,14 +266,12 @@ def merge_bilingual(
     for style_name in ("bottom", "top"):
         merged.styles[style_name].wrap_style = 0  # SMART_RT
 
-    # Add events with their styles
+    # Add events with their styles, stripping alignment/position overrides
     for event in subs1:
-        event.style = "bottom"
-        merged.append(event)
+        merged.append(_clean_event(event, "bottom"))
 
     for event in subs2:
-        event.style = "top"
-        merged.append(event)
+        merged.append(_clean_event(event, "top"))
 
     # Sort by start time, with top-style events preceding bottom-style
     # events at the same timestamp (ensures consistent rendering order)

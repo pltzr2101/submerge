@@ -65,9 +65,13 @@ def _get_lang_patterns(video_stem: str, lang: str) -> list[str]:
     Handles 2-letter (ISO 639-1), 3-letter (ISO 639-2), and locale-style
     codes that Bazarr/Lingarr might use (e.g., de, deu, ger, de-DE).
 
-    Normal tracks (.srt, .ass) are listed first; SDH/HI/CC/forced
+    Normal tracks (.srt) are listed first; SDH/HI/CC/forced
     variants are listed after all normal patterns so that
     ``find_subtitle_path`` picks the regular track when both exist.
+
+    .ass files are intentionally excluded because submerge generates
+    .ass output files — a previously merged ``Movie.de-ko.ass`` must
+    never be picked up as a subtitle input source.
 
     Args:
         video_stem: Video filename stem (without extension)
@@ -77,20 +81,17 @@ def _get_lang_patterns(video_stem: str, lang: str) -> list[str]:
         List of filename patterns to try, in priority order
     """
     aliases = get_all_aliases(lang)
-    extensions = [".srt", ".ass"]
+    extensions = [".srt"]
     # SDH (Subtitles for Deaf/Hard-of-hearing), HI (Hearing Impaired),
     # CC (Closed Captions), forced (Forced Narrative) — all are
     # deprioritised variants that should only be used when no normal
-    # subtitle track exists.
+    # subtitle track exists.  .ass versions are excluded for the same
+    # reason as above.
     variant_extensions = [
         ".hi.srt",
-        ".hi.ass",
         ".sdh.srt",
-        ".sdh.ass",
         ".cc.srt",
-        ".cc.ass",
         ".forced.srt",
-        ".forced.ass",
     ]
 
     patterns: list[str] = []
@@ -117,9 +118,13 @@ def find_subtitle_path(video_path: Path, lang: str) -> Path | None:
     """Find subtitle file for a language.
 
     Searches in priority order:
-    1. Normal tracks (.srt, .ass) for any known alias
+    1. Normal tracks (.srt) for any known alias
     2. SDH/HI/CC/forced variants (.hi.srt, .sdh.srt, .cc.srt, .forced.srt)
        only when no normal track exists
+
+    .ass files are intentionally excluded from subtitle search because
+    submerge generates .ass output files that must never be picked up
+    as input sources.
 
     Also tries 3-letter ISO 639-2 codes (e.g., 'deu' for 'de').
     Falls back to a case-insensitive directory scan so that files named
@@ -156,6 +161,9 @@ def find_subtitle_path(video_path: Path, lang: str) -> Path | None:
                 continue
             name = entry.name
             if not name.lower().startswith(video_stem.lower() + "."):
+                continue
+            # Skip .ass output files (submerge's own output)
+            if name.lower().endswith(".ass"):
                 continue
             # Extract the part after the video stem
             rest = name[len(video_stem) + 1 :].lower()
@@ -351,7 +359,27 @@ def _polling_worker(
                         logger.info(f"Skipping {video_path.name}: outputs already up-to-date")
                         return
 
-                    created_files = process_bilingual_merge(video_path, sub_paths, current_settings)
+                    lock_path = get_lock_path(video_path, current_settings)
+                    lock = FileLock(lock_path, timeout=LOCK_TIMEOUT)
+                    try:
+                        with lock.acquire(timeout=LOCK_TIMEOUT):
+                            # Re-check after acquiring lock (another process may have merged)
+                            if should_skip_existing(video_path, sub_paths, current_settings):
+                                logger.info(
+                                    f"Skipping {video_path.name}:"
+                                    " outputs up-to-date (post-lock check)"
+                                )
+                                return
+                            created_files = process_bilingual_merge(
+                                video_path, sub_paths, current_settings
+                            )
+                    except Timeout:
+                        logger.warning(
+                            f"Polling worker: lock timeout for {video_path.name}, "
+                            "will retry next cycle"
+                        )
+                        continue
+
                     logger.info(
                         f"Polling merge complete for {video_path.name}: "
                         f"{[f.name for f in created_files]}"

@@ -151,3 +151,59 @@ class TestDeduplication:
         bottom_events = [e for e in subs if e.style == "bottom"]
         hello_events = [e for e in bottom_events if e.plaintext == "Hello"]
         assert len(hello_events) == 1
+
+
+class TestInlineTagCleanup:
+    """Tests for inline alignment tag stripping in merge_bilingual."""
+
+    def test_bottom_style_not_overridden_by_inline_tag(self, tmp_path: Path, sample_srt_pl: Path):
+        """Inline {\an8} tag is stripped from bottom events."""
+        # Create an SRT with {\an8} tag in one event
+        tagged_srt = tmp_path / "tagged.srt"
+        tagged_srt.write_text(
+            "1\n00:00:01,000 --> 00:00:02,000\n{\\an8}Hallo Welt\n\n"
+            "2\n00:00:03,000 --> 00:00:04,000\nNormaler Text\n"
+        )
+        output = tmp_path / "output.ass"
+
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        merge_bilingual(tagged_srt, sample_srt_pl, output, config)
+
+        subs = pysubs2.load(str(output))
+        bottom_events = [e for e in subs if e.style == "bottom"]
+        tagged_events = [e for e in bottom_events if "Hallo Welt" in e.plaintext]
+        assert len(tagged_events) == 1
+        assert "\\an" not in tagged_events[0].text
+        assert tagged_events[0].style == "bottom"
+
+
+class TestReMerge:
+    """Tests for re-merge / output reuse behaviour."""
+
+    def test_remerge_overwrites_existing_ass(self, tmp_path: Path, sample_srt_pl: Path):
+        """merge_bilingual overwrites an existing .ass output file."""
+        fr_srt = tmp_path / "Movie.de.srt"
+        fr_srt.write_text(
+            "1\n00:00:01,000 --> 00:00:02,000\nNeuer Text\n\n"
+            "2\n00:00:03,000 --> 00:00:04,000\nZweite Zeile\n"
+        )
+        output = tmp_path / "Movie.de-ko.ass"
+        # Pre-existing stale output
+        output.write_text("old content")
+
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        merge_bilingual(fr_srt, sample_srt_pl, output, config)
+
+        subs = pysubs2.load(str(output))
+        assert subs is not None
+        assert "old content" not in output.read_text()

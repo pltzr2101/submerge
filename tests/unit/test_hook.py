@@ -98,6 +98,17 @@ class TestFindSubtitlePath:
         result = find_subtitle_path(video, "de")
         assert result == hi_sub
 
+    def test_ass_output_not_used_as_subtitle_input(self, tmp_path: Path):
+        """Generated .ass output is never picked up as subtitle input."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+        # Create a previously merged .ass output — no .srt exists
+        ass_output = tmp_path / "Movie.de-ko.ass"
+        ass_output.touch()
+
+        result = find_subtitle_path(video, "de")
+        assert result is None
+
 
 class TestProcessHook:
     """Tests for process_hook - error handling."""
