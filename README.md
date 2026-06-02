@@ -208,7 +208,7 @@ Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282`:
 | Page | Description |
 |------|-------------|
 | **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), per-video merge/sync buttons, batch "merge all missing", search/filter, polling status badge |
-| **Settings** (`/settings`) | View and override all `SUBTOOLS_*` environment variables at runtime (in-memory changes only, not persisted across restarts) |
+| **Settings** (`/settings`) | Override `SUBTOOLS_*` environment variables at runtime. **In-memory only — changes are lost on container restart.** To make style changes permanent, save them as a Preset and set it as the Default Template in the Style Editor. |
 | **Style Editor** (`/styles`) | Two-tab editor (Bottom/Top) with color pickers, font size, outline/shadow controls, CJK font selector, canvas preview, preset save/load, ASS export button |
 
 ## Development

@@ -200,7 +200,12 @@ def create_app() -> FastAPI:
                 logger.info("Startup auto-merge triggered")
                 try:
                     s = _get_schedule_merge_settings()
-                    _run_scan(s)
+                    loop = asyncio.get_running_loop()
+                    result = await loop.run_in_executor(None, _run_scan, s)
+                    logger.info(
+                        f"Startup auto-merge complete: {result['merged']} merged, "
+                        f"{result['polling']} polling"
+                    )
                 except Exception as exc:
                     logger.error(f"Startup auto-merge failed: {exc}")
 
