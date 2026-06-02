@@ -55,6 +55,7 @@ class MergeConfig:
     spacing_top: float = 0.0
     stacked_gap: int = 40
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
+    _fingerprint: str = ""  # Set by process_bilingual_merge, embedded in .ass
 
 
 def _hex_to_color(hex_color: str) -> Color:
@@ -83,11 +84,22 @@ _ALIGNMENT_OVERRIDE_RE = re.compile(
 )
 
 
-def _clean_event(event, style_name: str):
+def _clean_event(event, style_name: str, strip_newlines: bool = False):
     """Return a shallow copy of *event* with alignment/position overrides
-    stripped from its text and *style_name* assigned."""
+    stripped. For bottom-style events, explicit ``\\N`` / ``\\n`` line
+    breaks are also removed so the renderer (wrap_style=0) handles
+    wrapping instead, preventing the block from growing upward and
+    overlapping the top subtitle.
+    """
     ev = copy.copy(event)
-    ev.text = _ALIGNMENT_OVERRIDE_RE.sub("", ev.text)
+    text = _ALIGNMENT_OVERRIDE_RE.sub("", ev.text)
+    if strip_newlines:
+        # Replace hard line breaks (\\N) and soft line breaks (\\n) with a
+        # space.  The ASS renderer with wrap_style=0 will re-wrap the text
+        # as needed.
+        text = re.sub(r"\\[Nn]", " ", text)
+        text = re.sub(r"  +", " ", text).strip()
+    ev.text = text
     ev.style = style_name
     return ev
 
@@ -266,12 +278,15 @@ def merge_bilingual(
     for style_name in ("bottom", "top"):
         merged.styles[style_name].wrap_style = 0  # SMART_RT
 
-    # Add events with their styles, stripping alignment/position overrides
+    # Add events with their styles, stripping alignment/position overrides.
+    # Bottom events also have explicit \N / \n line breaks removed so the
+    # renderer handles wrapping — otherwise a multi-line block grows upward
+    # and overlaps the top subtitle.
     for event in subs1:
-        merged.append(_clean_event(event, "bottom"))
+        merged.append(_clean_event(event, "bottom", strip_newlines=True))
 
     for event in subs2:
-        merged.append(_clean_event(event, "top"))
+        merged.append(_clean_event(event, "top", strip_newlines=False))
 
     # Sort by start time, with top-style events preceding bottom-style
     # events at the same timestamp (ensures consistent rendering order)
@@ -300,6 +315,9 @@ def merge_bilingual(
 
     # Save as ASS
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Embed config fingerprint for re-merge detection
+    if config._fingerprint:
+        merged.info["SubmergeConfigHash"] = config._fingerprint
     merged.save(str(output_path))
 
     logger.info(

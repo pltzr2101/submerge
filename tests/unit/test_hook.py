@@ -16,8 +16,11 @@ from filelock import Timeout
 from submerge.hook import (
     InvalidLanguageError,
     ProcessingError,
+    _config_fingerprint,
     find_subtitle_path,
+    get_output_path,
     process_hook,
+    should_skip_existing,
 )
 
 
@@ -108,6 +111,106 @@ class TestFindSubtitlePath:
 
         result = find_subtitle_path(video, "de")
         assert result is None
+
+
+class TestSkipExistingFingerprint:
+    """Tests for config fingerprint in should_skip_existing."""
+
+    @staticmethod
+    def _settings(pairs: str = "fr-pl"):
+        from submerge.config import get_settings_for_test
+
+        return get_settings_for_test(pairs=pairs, layout="top-bottom")
+
+    def test_remerges_when_no_fingerprint(self, tmp_path: Path):
+        """Dune .ass with no SubmergeConfigHash forces re-merge."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+
+        fr_srt = tmp_path / "Movie.fr.srt"
+        fr_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nBonjour\n")
+        pl_srt = tmp_path / "Movie.pl.srt"
+        pl_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nCześć\n")
+
+        # Dune .ass (no fingerprint) with correct pair name
+        ass_path = get_output_path(video, "fr", "pl")
+        ass_path.write_text(
+            "[Script Info]\nTitle: Test\nScriptType: v4.00+\n\n"
+            "[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+            "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+            "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,"
+            "&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+            "MarginV, Effect, Text\n"
+        )
+
+        result = should_skip_existing(video, {"fr": fr_srt, "pl": pl_srt}, self._settings())
+        assert result is False  # No fingerprint → force re-merge
+
+    def test_forces_remerge_on_config_change(self, tmp_path: Path):
+        """Mismatched fingerprint forces re-merge."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+
+        fr_srt = tmp_path / "Movie.fr.srt"
+        fr_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nBonjour\n")
+        pl_srt = tmp_path / "Movie.pl.srt"
+        pl_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nCześć\n")
+
+        # Create .ass with a different (fake) fingerprint
+        ass_path = get_output_path(video, "fr", "pl")
+        ass_path.write_text(
+            "[Script Info]\nTitle: Test\nScriptType: v4.00+\n"
+            "SubmergeConfigHash: aabbccdd00112233\n\n"
+            "[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+            "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+            "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,"
+            "&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+            "MarginV, Effect, Text\n"
+        )
+
+        result = should_skip_existing(video, {"fr": fr_srt, "pl": pl_srt}, self._settings())
+        assert result is False  # Fingerprints don't match
+
+    def test_skips_when_fingerprint_matches(self, tmp_path: Path):
+        """Matching fingerprint + newer .ass → skip."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+
+        fr_srt = tmp_path / "Movie.fr.srt"
+        fr_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nBonjour\n")
+        pl_srt = tmp_path / "Movie.pl.srt"
+        pl_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nCześć\n")
+
+        settings = self._settings()
+        fingerprint = _config_fingerprint(settings)
+        ass_path = get_output_path(video, "fr", "pl")
+        ass_path.write_text(
+            "[Script Info]\nTitle: Test\nScriptType: v4.00+\n"
+            f"SubmergeConfigHash: {fingerprint}\n\n"
+            "[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+            "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+            "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,"
+            "&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+            "MarginV, Effect, Text\n"
+        )
+
+        result = should_skip_existing(video, {"fr": fr_srt, "pl": pl_srt}, settings)
+        assert result is True  # Fingerprints match + mtime passed
 
 
 class TestProcessHook:

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
 
+import pysubs2
 from filelock import FileLock, Timeout
 
 from .config import SubtoolsSettings, get_settings
@@ -18,6 +21,41 @@ logger = logging.getLogger(__name__)
 
 # Constants
 LOCK_TIMEOUT = 5  # seconds
+
+
+def _config_fingerprint(settings: SubtoolsSettings) -> str:
+    """Return a short SHA-256 fingerprint of all style-relevant settings.
+
+    Used to detect config changes that require a re-merge even when source
+    mtime hasn't changed.
+    """
+    style_fields = {
+        "bottom_color": settings.bottom_color,
+        "top_color": settings.top_color,
+        "bottom_fontsize": settings.bottom_fontsize,
+        "top_fontsize": settings.top_fontsize,
+        "font_bottom": settings.font_bottom,
+        "font_top": settings.font_top,
+        "bottom_bold": settings.bottom_bold,
+        "top_bold": settings.top_bold,
+        "bottom_outline": settings.bottom_outline,
+        "top_outline": settings.top_outline,
+        "bottom_outline_color": settings.bottom_outline_color,
+        "top_outline_color": settings.top_outline_color,
+        "bottom_shadow": settings.bottom_shadow,
+        "top_shadow": settings.top_shadow,
+        "bottom_margin_v": settings.bottom_margin_v,
+        "top_margin_v": settings.top_margin_v,
+        "bottom_margin_h": settings.bottom_margin_h,
+        "top_margin_h": settings.top_margin_h,
+        "bottom_spacing": settings.bottom_spacing,
+        "top_spacing": settings.top_spacing,
+        "stacked_gap": settings.stacked_gap,
+        "layout": settings.layout,
+    }
+    serialized = json.dumps(style_fields, sort_keys=True)
+    return hashlib.sha256(serialized.encode()).hexdigest()[:16]
+
 
 # Track active polling jobs: video_path -> threading.Event (set to cancel)
 # Protected by _polling_jobs_lock for thread safety.
@@ -259,8 +297,9 @@ def should_skip_existing(
 ) -> bool:
     """Check if .ass files exist and are newer than sources.
 
-    Note: uses mtime comparison only, not content hash.
-    Re-downloads with identical timestamps will not trigger re-merge.
+    Compares both source mtime and a config fingerprint stored in the
+    .ass file.  If the fingerprint has changed (e.g. fontsize, colors,
+    layout) a re-merge is forced even when source mtime is unchanged.
 
     Args:
         video_path: Path to video file
@@ -271,6 +310,7 @@ def should_skip_existing(
         True if all .ass exist and are newer than their sources
     """
     settings = settings or get_settings()
+    current_fingerprint = _config_fingerprint(settings)
 
     for lang_bottom, lang_top in settings.pairs:
         output_path = get_output_path(video_path, lang_bottom, lang_top)
@@ -280,6 +320,20 @@ def should_skip_existing(
             return False
 
         output_mtime = output_path.stat().st_mtime
+
+        # Check config fingerprint — force re-merge if style config changed
+        try:
+            stored_subs = pysubs2.load(str(output_path))
+            stored_fingerprint = stored_subs.info.get("SubmergeConfigHash", "")
+        except Exception:
+            stored_fingerprint = ""
+
+        if stored_fingerprint != current_fingerprint:
+            logger.debug(
+                f"Skip check: config fingerprint changed for {output_path.name} "
+                f"(stored={stored_fingerprint!r}, current={current_fingerprint!r})"
+            )
+            return False
 
         # Check that .ass is newer than both sources
         for lang in (lang_bottom, lang_top):
@@ -496,6 +550,7 @@ def process_bilingual_merge(
         stacked_gap=settings.stacked_gap,
         layout=settings.layout,
     )
+    merge_config._fingerprint = _config_fingerprint(settings)
 
     try:
         for lang_bottom, lang_top in settings.pairs:

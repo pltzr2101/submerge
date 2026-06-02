@@ -10,8 +10,33 @@ import time
 from pathlib import Path
 
 from submerge.config import get_settings_for_test
-from submerge.hook import process_hook
+from submerge.hook import _config_fingerprint, process_hook
 from submerge.merge import MergeConfig, merge_bilingual
+
+
+def _write_stub_ass(path: Path, fingerprint: str, body: str = "") -> None:
+    """Write a minimal valid .ass file with a config fingerprint embedded."""
+    content = (
+        "[Script Info]\n"
+        "Title: Test\n"
+        "ScriptType: v4.00+\n"
+        f"SubmergeConfigHash: {fingerprint}\n"
+        "\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+        "0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n"
+        "\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    if body:
+        content += body + "\n"
+    path.write_text(content)
+
 
 # Realistic subtitle fixtures
 SAMPLE_SRT_FR = """1
@@ -195,11 +220,12 @@ class TestHookIntegration:
 
         time.sleep(0.05)
 
-        # Create .ass files after .srt files
-        (tmp_path / "Movie.fr-pl.ass").write_text("existing")
-        (tmp_path / "Movie.en-pl.ass").write_text("existing")
-
         settings = get_settings_for_test(pairs="fr-pl,en-pl")
+        fingerprint = _config_fingerprint(settings)
+
+        # Create .ass files after .srt files, with correct config fingerprint
+        _write_stub_ass(tmp_path / "Movie.fr-pl.ass", fingerprint)
+        _write_stub_ass(tmp_path / "Movie.en-pl.ass", fingerprint)
 
         result = process_hook(video, tmp_path / "Movie.fr.srt", "fr", settings)
 
@@ -211,9 +237,13 @@ class TestHookIntegration:
         video = tmp_path / "Movie.mkv"
         video.touch()
 
-        # Create .ass files first
-        (tmp_path / "Movie.fr-pl.ass").write_text("old")
-        (tmp_path / "Movie.en-pl.ass").write_text("old")
+        settings = get_settings_for_test(pairs="fr-pl,en-pl")
+        fingerprint = _config_fingerprint(settings)
+
+        # Create .ass files first, with correct fingerprint
+        dialogue = "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,old\n"
+        _write_stub_ass(tmp_path / "Movie.fr-pl.ass", fingerprint, body=dialogue)
+        _write_stub_ass(tmp_path / "Movie.en-pl.ass", fingerprint, body=dialogue)
 
         time.sleep(0.05)
 

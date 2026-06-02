@@ -182,6 +182,79 @@ class TestInlineTagCleanup:
         assert tagged_events[0].style == "bottom"
 
 
+class TestLinebreakStripping:
+    """Tests for \\N and \\n linebreak stripping in bottom events."""
+
+    def test_bottom_newline_stripped(self, tmp_path: Path, sample_srt_pl: Path):
+        r"""\\N in bottom event text is replaced with a space."""
+        nl_srt = tmp_path / "newline.srt"
+        nl_srt.write_text(
+            "1\n00:00:01,000 --> 00:00:02,000\nErste Zeile\\NZweite Zeile\n\n"
+            "2\n00:00:03,000 --> 00:00:04,000\nNormal\n"
+        )
+        output = tmp_path / "output.ass"
+
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        merge_bilingual(nl_srt, sample_srt_pl, output, config)
+
+        subs = pysubs2.load(str(output))
+        bottom_events = [e for e in subs if e.style == "bottom"]
+        tagged = [e for e in bottom_events if "Erste Zeile" in e.plaintext]
+        assert len(tagged) == 1
+        assert "\\N" not in tagged[0].text
+        assert "Erste Zeile Zweite Zeile" in tagged[0].text
+
+    def test_top_newline_preserved(self, tmp_path: Path, sample_srt_pl: Path):
+        r"""\\N in top event text is kept."""
+        nl_srt = tmp_path / "newline_top.srt"
+        nl_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nLinia pierwsza\\NLinia druga\n\n")
+        top_srt = tmp_path / "top.srt"
+        top_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nTop Event\n")
+        output = tmp_path / "output.ass"
+
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        # sub1 = bottom, sub2 = top. Put the newline in sub2 (top).
+        merge_bilingual(top_srt, nl_srt, output, config)
+
+        subs = pysubs2.load(str(output))
+        top_events = [e for e in subs if e.style == "top"]
+        assert len(top_events) >= 1
+        found = next((e for e in top_events if "Linia" in e.plaintext), None)
+        assert found is not None
+        assert "\\N" in found.text
+
+    def test_soft_newline_stripped_from_bottom(self, tmp_path: Path, sample_srt_pl: Path):
+        r"""\\n (soft newline) in bottom event text is also stripped."""
+        nl_srt = tmp_path / "soft_nl.srt"
+        nl_srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nPart one\\nPart two\n\n")
+        output = tmp_path / "output.ass"
+
+        config = MergeConfig(
+            fontsize_bottom=20,
+            fontsize_top=20,
+            outline_bottom=2.0,
+            outline_top=2.0,
+        )
+        merge_bilingual(nl_srt, sample_srt_pl, output, config)
+
+        subs = pysubs2.load(str(output))
+        bottom_events = [e for e in subs if e.style == "bottom"]
+        tagged = [e for e in bottom_events if "Part one" in e.plaintext]
+        assert len(tagged) == 1
+        assert "\\n" not in tagged[0].text
+        assert "Part one Part two" in tagged[0].text
+
+
 class TestReMerge:
     """Tests for re-merge / output reuse behaviour."""
 
