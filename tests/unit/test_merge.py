@@ -81,12 +81,12 @@ class TestMergeConfig:
         assert config.color_bottom == "#FFFFFF"
         assert config.color_top == "#FFFF00"
         assert config.fontsize == 20
-        assert config.fontsize_bottom == 20
-        assert config.fontsize_top == 18
-        assert config.font_name == ""
+        assert config.fontsize_bottom is None
+        assert config.fontsize_top is None
+        assert config.font_bottom == ""
         assert config.outline == 2.0
-        assert config.outline_bottom == 2.0
-        assert config.outline_top == 2.0
+        assert config.outline_bottom is None
+        assert config.outline_top is None
         assert config.shadow == 0.0
         assert config.layout == "top-bottom"
 

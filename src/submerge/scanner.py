@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,24 +40,22 @@ def _is_video_file(path: Path) -> bool:
 def scan_directory(
     root_dir: str | Path,
     settings: SubtoolsSettings | None = None,
-) -> list[MediaEntry]:
+) -> Iterator[MediaEntry]:
     """Scan a directory recursively for video files and subtitle status.
 
     Args:
         root_dir: Root directory to scan
         settings: Configuration for language pairs
 
-    Returns:
-        List of MediaEntry objects with subtitle status
+    Yields:
+        MediaEntry objects with subtitle status
     """
     settings = settings or get_settings()
     root = Path(root_dir).resolve()
 
     if not root.exists():
         logger.warning(f"Media root does not exist: {root}")
-        return []
-
-    entries: list[MediaEntry] = []
+        return
 
     video_files = [p for p in root.rglob("*") if p.is_file() and _is_video_file(p)]
     video_files.sort()
@@ -90,19 +89,15 @@ def scan_directory(
         # Determine overall status
         all_langs_present = all(s["present"] for s in subtitle_status.values())
 
-        entries.append(
-            MediaEntry(
-                video_path=str(video_path),
-                video_name=video_path.name,
-                parent_dir=parent_dir,
-                subtitle_status=subtitle_status,
-                merged_status=merged_status,
-                all_langs_present=all_langs_present,
-                all_merged=all_merged,
-            )
+        yield MediaEntry(
+            video_path=str(video_path),
+            video_name=video_path.name,
+            parent_dir=parent_dir,
+            subtitle_status=subtitle_status,
+            merged_status=merged_status,
+            all_langs_present=all_langs_present,
+            all_merged=all_merged,
         )
-
-    return entries
 
 
 def find_videos_needing_merge(

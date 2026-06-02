@@ -37,8 +37,8 @@ class QueueEntry:
     """A pending merge entry in the queue."""
 
     video_path: str
-    langs_present: str  # JSON list of present lang codes
-    langs_missing: str  # JSON list of missing lang codes
+    langs_present: list[str]
+    langs_missing: list[str]
     first_seen: str  # ISO datetime
     last_checked: str  # ISO datetime
     attempt_count: int

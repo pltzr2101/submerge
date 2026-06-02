@@ -10,7 +10,7 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from .config import SubtoolsSettings, get_settings
-from .langmap import get_all_aliases
+from .langmap import get_all_aliases, normalize_lang
 from .merge import MergeConfig, merge_bilingual
 from .models import HookResult, InvalidLanguageError, ProcessingError
 
@@ -47,8 +47,6 @@ def validate_lang(lang: str, settings: SubtoolsSettings | None = None) -> str:
     Raises:
         InvalidLanguageError: If language is not in configured pairs
     """
-    from .langmap import normalize_lang
-
     settings = settings or get_settings()
     normalized = normalize_lang(lang)
     if normalized is None:
@@ -195,6 +193,9 @@ def should_skip_existing(
     settings: SubtoolsSettings | None = None,
 ) -> bool:
     """Check if .ass files exist and are newer than sources.
+
+    Note: uses mtime comparison only, not content hash.
+    Re-downloads with identical timestamps will not trigger re-merge.
 
     Args:
         video_path: Path to video file

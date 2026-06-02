@@ -93,7 +93,9 @@ def list_subtitle_tracks(video_path: str | Path) -> list[SubtitleTrack]:
     except subprocess.CalledProcessError as e:
         raise ProbeError(f"ffprobe failed: {e.stderr}") from e
     except FileNotFoundError:
-        raise ProbeError("ffprobe not found. Install ffmpeg: brew install ffmpeg")
+        raise ProbeError(
+            "ffprobe not found. Install ffmpeg and ensure it is in PATH (e.g., apt install ffmpeg)"
+        )
 
     try:
         data = json.loads(result.stdout)

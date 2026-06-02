@@ -65,17 +65,17 @@ class SSEHandler(logging.Handler):
         try:
             msg = self.format(record)
             try:
-                asyncio.get_running_loop()  # ensure running in event loop
-                q = _get_log_queue()
-                # Drop oldest if full (non-blocking)
-                if q.full():
-                    try:
-                        q.get_nowait()
-                    except asyncio.QueueEmpty:
-                        pass
-                q.put_nowait(msg)
+                loop = asyncio.get_running_loop()
             except RuntimeError:
-                pass  # No event loop running
+                return  # No event loop running, silently discard
+            q = _get_log_queue()
+            # Drop oldest if full before enqueuing
+            if q.full():
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+            loop.call_soon_threadsafe(q.put_nowait, msg)
         except Exception:
             pass
 
@@ -123,9 +123,7 @@ def _get_effective_settings() -> SubtoolsSettings:
             for k, v in _runtime_settings.items()
             if (k == "pairs") or (k in known_fields)
         }
-        from .config import get_settings_for_test
-
-        return get_settings_for_test(**overrides)
+        return SubtoolsSettings.with_overrides(**overrides)
 
 
 def _apply_template(
@@ -143,9 +141,7 @@ def _apply_template(
     overrides["pairs_raw"] = base_settings.pairs_raw
     known_fields = set(SubtoolsSettings.model_fields.keys())
     overrides = {k: v for k, v in overrides.items() if k in known_fields}
-    from .config import get_settings_for_test
-
-    return get_settings_for_test(**overrides)
+    return SubtoolsSettings.with_overrides(**overrides)
 
 
 def _runtime_settings_to_response() -> dict[str, Any]:
@@ -226,6 +222,7 @@ def create_app() -> FastAPI:
 
     # Rate limiting (in-memory, per deployment)
     _rate_limits: dict[str, list[float]] = {}
+    _rate_limit_request_count: int = 0
 
     class RateLimitMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
@@ -243,6 +240,15 @@ def create_app() -> FastAPI:
                 _rate_limits[client] = bucket
             bucket.append(now)
             _rate_limits[client] = bucket
+
+            # Periodic cleanup: cap dict to 10,000 keys, at most once per 100 requests
+            nonlocal _rate_limit_request_count
+            _rate_limit_request_count += 1
+            if _rate_limit_request_count % 100 == 0 and len(_rate_limits) > 10000:
+                stale = [k for k, v in _rate_limits.items() if not v]
+                for k in stale:
+                    del _rate_limits[k]
+
             if len(bucket) > rate_limit_rpm:
                 return Response(
                     content=json.dumps({"detail": "Too many requests"}),
@@ -252,35 +258,39 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
     class BasicAuthMiddleware(BaseHTTPMiddleware):
+        _UNPROTECTED_PREFIXES = ("/health", "/hook", "/lingarr-hook", "/api/", "/static/")
+
         async def dispatch(self, request: Request, call_next):
             path = request.url.path
-            # Only protect UI pages, not API/hook endpoints
-            if path in ("/", "/settings", "/styles") or path.startswith("/logs"):
-                password = getattr(_get_effective_settings(), "ui_password", "")
-                if password:
-                    authorization = request.headers.get("Authorization", "")
-                    if not authorization.startswith("Basic "):
-                        return Response(
-                            status_code=401,
-                            headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
-                            content="Authentication required",
-                        )
-                    try:
-                        decoded = base64.b64decode(authorization[6:]).decode()
-                        provided_user, provided_pass = decoded.split(":", 1)
-                        expected_user = getattr(_get_effective_settings(), "ui_user", "admin")
-                        if provided_user != expected_user or provided_pass != password:
-                            return Response(
-                                status_code=401,
-                                headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
-                                content="Invalid credentials",
-                            )
-                    except Exception:
-                        return Response(
-                            status_code=401,
-                            headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
-                            content="Invalid credentials",
-                        )
+            # Protect everything except explicit unprotected paths/prefixes
+            if any(path == p or path.startswith(p) for p in self._UNPROTECTED_PREFIXES):
+                return await call_next(request)
+            password = getattr(_get_effective_settings(), "ui_password", "")
+            if not password:
+                return await call_next(request)
+            authorization = request.headers.get("Authorization", "")
+            if not authorization.startswith("Basic "):
+                return Response(
+                    status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
+                    content="Authentication required",
+                )
+            try:
+                decoded = base64.b64decode(authorization[6:]).decode()
+                provided_user, provided_pass = decoded.split(":", 1)
+                expected_user = getattr(_get_effective_settings(), "ui_user", "admin")
+                if provided_user != expected_user or provided_pass != password:
+                    return Response(
+                        status_code=401,
+                        headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
+                        content="Invalid credentials",
+                    )
+            except Exception:
+                return Response(
+                    status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
+                    content="Invalid credentials",
+                )
             return await call_next(request)
 
     app.add_middleware(RateLimitMiddleware)
@@ -1176,21 +1186,35 @@ def _get_settings_path() -> Path:
 def _load_presets() -> dict:
     presets = dict(_DEFAULT_PRESETS)
     path = _get_presets_path()
-    if path.exists():
-        try:
-            custom = json.loads(path.read_text())
-            presets.update(custom)
-        except Exception:
-            pass
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    try:
+        from filelock import FileLock
+
+        with FileLock(str(lock_path), timeout=5):
+            if path.exists():
+                try:
+                    custom = json.loads(path.read_text())
+                    presets.update(custom)
+                except Exception:
+                    pass
+    except ImportError:
+        pass
     return presets
 
 
 def _save_custom_presets(presets: dict) -> None:
     path = _get_presets_path()
+    lock_path = path.with_suffix(path.suffix + ".lock")
     # Only save non-default presets
     custom = {k: v for k, v in presets.items() if k not in _DEFAULT_PRESETS}
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(custom, indent=2))
+    try:
+        from filelock import FileLock
+
+        with FileLock(str(lock_path), timeout=5):
+            path.write_text(json.dumps(custom, indent=2))
+    except ImportError:
+        path.write_text(json.dumps(custom, indent=2))
 
 
 def _load_app_settings() -> dict[str, Any]:

@@ -22,25 +22,23 @@ class MergeConfig:
     """Configuration for bilingual merge.
 
     Per-style fields (fontsize_bottom, fontsize_top, outline_bottom,
-    outline_top) are used directly by merge_bilingual. The generic
-    ``fontsize`` and ``outline`` fields are **deprecated** and only
-    serve as fallback values when the corresponding per-style field is
-    zero/falsy. Prefer setting the per-style fields explicitly.
+    outline_top) default to None, falling back to the generic ``fontsize``
+    and ``outline`` values. Set per-style fields explicitly for
+    language-specific sizing.
     """
 
     color_bottom: str = "#FFFFFF"  # White
     color_top: str = "#FFFF00"  # Yellow
     fontsize: int = 20
-    fontsize_bottom: int = 20  # per-style override (falls back to fontsize)
-    fontsize_top: int = 18
-    font_name: str = ""
-    font_bottom: str = ""  # Empty = inherit font_name
-    font_top: str = ""  # Empty = inherit font_name
+    fontsize_bottom: int | None = None  # None = inherit fontsize
+    fontsize_top: int | None = None
+    font_bottom: str = ""
+    font_top: str = ""
     bold_bottom: bool = False
     bold_top: bool = False
     outline: float = 2.0
-    outline_bottom: float = 2.0  # per-style override (falls back to outline)
-    outline_top: float = 2.0
+    outline_bottom: float | None = None  # None = inherit outline
+    outline_top: float | None = None
     outline_color_bottom: str = "#000000"
     outline_color_top: str = "#000000"
     shadow: float = 0.0  # Disabled by default - cleaner look
@@ -157,10 +155,12 @@ def merge_bilingual(
     font_top = config.font_top
     shadow_bottom = config.shadow_bottom if config.shadow_bottom is not None else config.shadow
     shadow_top = config.shadow_top if config.shadow_top is not None else config.shadow
-    fontsize_bottom = config.fontsize_bottom or config.fontsize
-    fontsize_top = config.fontsize_top or config.fontsize
-    outline_bottom = config.outline_bottom or config.outline
-    outline_top = config.outline_top or config.outline
+    fontsize_bottom = (
+        config.fontsize_bottom if config.fontsize_bottom is not None else config.fontsize
+    )
+    fontsize_top = config.fontsize_top if config.fontsize_top is not None else config.fontsize
+    outline_bottom = config.outline_bottom if config.outline_bottom is not None else config.outline
+    outline_top = config.outline_top if config.outline_top is not None else config.outline
 
     bold_bottom = -1 if config.bold_bottom else 0
     bold_top = -1 if config.bold_top else 0

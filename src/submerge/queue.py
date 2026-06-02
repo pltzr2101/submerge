@@ -188,10 +188,11 @@ def get_video_path_by_id(entry_id: int, settings: SubtoolsSettings | None = None
     if conn is None:
         return None
     try:
+        conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT video_path FROM pending_merges WHERE id = ?", (entry_id,)
         ).fetchone()
-        return row[0] if row else None
+        return row["video_path"] if row else None
     finally:
         conn.close()
 
@@ -203,6 +204,7 @@ def get_pending_entries(settings: SubtoolsSettings | None = None) -> list[QueueE
     if conn is None:
         return []
     try:
+        conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """SELECT video_path, langs_present, langs_missing,
                       first_seen, last_checked, attempt_count, status
@@ -211,13 +213,13 @@ def get_pending_entries(settings: SubtoolsSettings | None = None) -> list[QueueE
         ).fetchall()
         return [
             QueueEntry(
-                video_path=row[0],
-                langs_present=row[1],
-                langs_missing=row[2],
-                first_seen=row[3],
-                last_checked=row[4],
-                attempt_count=row[5],
-                status=row[6],
+                video_path=row["video_path"],
+                langs_present=json.loads(row["langs_present"]),
+                langs_missing=json.loads(row["langs_missing"]),
+                first_seen=row["first_seen"],
+                last_checked=row["last_checked"],
+                attempt_count=row["attempt_count"],
+                status=row["status"],
             )
             for row in rows
         ]
@@ -231,6 +233,7 @@ def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, 
     if conn is None:
         return []
     try:
+        conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """SELECT id, video_path, langs_present, langs_missing,
                       first_seen, last_checked, attempt_count, status, error_msg
@@ -238,16 +241,16 @@ def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, 
         ).fetchall()
         return [
             {
-                "id": row[0],
-                "video_path": row[1],
-                "video_name": Path(row[1]).name,
-                "langs_present": json.loads(row[2]),
-                "langs_missing": json.loads(row[3]),
-                "first_seen": row[4],
-                "last_checked": row[5],
-                "attempt_count": row[6],
-                "status": row[7],
-                "error_msg": row[8],
+                "id": row["id"],
+                "video_path": row["video_path"],
+                "video_name": Path(row["video_path"]).name,
+                "langs_present": json.loads(row["langs_present"]),
+                "langs_missing": json.loads(row["langs_missing"]),
+                "first_seen": row["first_seen"],
+                "last_checked": row["last_checked"],
+                "attempt_count": row["attempt_count"],
+                "status": row["status"],
+                "error_msg": row["error_msg"],
             }
             for row in rows
         ]

@@ -280,6 +280,16 @@ class SubtoolsSettings(BaseSettings):
     # Stacked layout
     stacked_gap: int = 8
 
+    @classmethod
+    def with_overrides(cls, **overrides) -> SubtoolsSettings:
+        """Create a new instance with the given field overrides applied.
+
+        Maps the user-friendly ``pairs`` key to ``pairs_raw`` automatically.
+        """
+        if "pairs" in overrides:
+            overrides["pairs_raw"] = overrides.pop("pairs")
+        return cls(**overrides)
+
     @field_validator("pairs_raw")
     @classmethod
     def validate_pairs_raw(cls, v: str) -> str:
