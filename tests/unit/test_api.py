@@ -127,8 +127,9 @@ class TestPresetDelete:
 
     @staticmethod
     def _make_client(tmp_path, monkeypatch, pairs="fr-pl,en-pl"):
-        """Create a TestClient with isolated media_root."""
+        """Create a TestClient with isolated media_root and config_dir."""
         monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
         monkeypatch.setenv("SUBTOOLS_PAIRS", pairs)
         from submerge.config import get_settings
         get_settings.cache_clear()
@@ -203,6 +204,7 @@ class TestMergeUnknownKeys:
     def test_merge_with_unknown_keys_returns_200(self, tmp_path, monkeypatch):
         """POST /api/merge with a preset containing UI-only keys returns 200."""
         monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
         monkeypatch.setenv("SUBTOOLS_PAIRS", "de-ko")
         from submerge.config import get_settings
         get_settings.cache_clear()

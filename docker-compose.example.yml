@@ -15,6 +15,8 @@ services:
       - SUBTOOLS_PAIRS=de-ko
       # Root directory for media inside the container
       - SUBTOOLS_MEDIA_ROOT=/data
+      # Config directory for presets and settings.json (default: /config)
+      - SUBTOOLS_CONFIG_DIR=/config
       # Polling interval in seconds (how often to check for missing subtitles)
       - SUBTOOLS_POLL_INTERVAL=60
       # Font size for bottom (German) subtitles

@@ -937,10 +937,19 @@ _DEFAULT_PRESETS = {
 }
 
 
-def _get_presets_path() -> Path:
+def _get_config_dir() -> Path:
+    """Return the config directory for submerge."""
     settings = _get_effective_settings()
-    data_dir = Path(settings.media_root)
-    return data_dir / "style_presets.json"
+    return Path(settings.config_dir)
+
+
+def _get_presets_path() -> Path:
+    return _get_config_dir() / "style_presets.json"
+
+
+def _get_settings_path() -> Path:
+    """Path to settings.json in the config directory."""
+    return _get_config_dir() / "settings.json"
 
 
 def _load_presets() -> dict:
@@ -961,17 +970,6 @@ def _save_custom_presets(presets: dict) -> None:
     custom = {k: v for k, v in presets.items() if k not in _DEFAULT_PRESETS}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(custom, indent=2))
-
-
-def _get_config_dir() -> Path:
-    """Return the config directory for submerge (media_root)."""
-    settings = _get_effective_settings()
-    return Path(settings.media_root)
-
-
-def _get_settings_path() -> Path:
-    """Path to settings.json in the config directory."""
-    return _get_config_dir() / "settings.json"
 
 
 def _load_app_settings() -> dict[str, Any]:

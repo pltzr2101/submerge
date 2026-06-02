@@ -86,6 +86,9 @@ class SubtoolsSettings(BaseSettings):
     poll_interval: int = 60
     retry_timeout_h: int = 48
 
+    # Config persistence (presets, settings.json)
+    config_dir: str = "/config"
+
     # UI auth
     ui_password: str = ""
     ui_user: str = "admin"
