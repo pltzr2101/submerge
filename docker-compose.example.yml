@@ -20,7 +20,9 @@ services:
       # Polling interval in seconds (how often to check for missing subtitles)
       - SUBTOOLS_POLL_INTERVAL=60
       # Font size for bottom (German) subtitles
-      - SUBTOOLS_FONTSIZE=20
+      - SUBTOOLS_BOTTOM_FONTSIZE=22
+      # Font size for top (Korean) subtitles
+      - SUBTOOLS_TOP_FONTSIZE=22
       # Text color for bottom subtitles (hex)
       - SUBTOOLS_COLOR_BOTTOM=#FFFFFF
       # Text color for top subtitles (hex)

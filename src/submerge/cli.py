@@ -329,7 +329,8 @@ def merge_cmd(
     config = MergeConfig(
         color_bottom=color1,
         color_top=color2,
-        fontsize=fontsize,
+        fontsize_bottom=fontsize,
+        fontsize_top=fontsize,
         layout=layout,
     )
 

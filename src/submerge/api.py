@@ -239,12 +239,8 @@ def create_app() -> FastAPI:
 
             client = request.client.host if request.client else "unknown"
             now = time.monotonic()
-            bucket = _rate_limits.setdefault(client, [])
-            bucket[:] = [t for t in bucket if now - t < 60]
-            if not bucket:
-                del _rate_limits[client]
-            else:
-                _rate_limits[client] = bucket
+            bucket = _rate_limits.get(client, [])
+            bucket = [t for t in bucket if now - t < 60]
             bucket.append(now)
             _rate_limits[client] = bucket
 
@@ -265,12 +261,14 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
     class BasicAuthMiddleware(BaseHTTPMiddleware):
-        _UNPROTECTED_PREFIXES = ("/health", "/hook", "/lingarr-hook", "/api/", "/static/")
+        _UNPROTECTED_PREFIXES = ("/health", "/hook", "/lingarr-hook", "/static/")
+        _UNPROTECTED_EXACT = {"/api/polls", "/api/queue", "/api/media", "/health"}
 
         async def dispatch(self, request: Request, call_next):
             path = request.url.path
-            # Protect everything except explicit unprotected paths/prefixes
             if any(path == p or path.startswith(p) for p in self._UNPROTECTED_PREFIXES):
+                return await call_next(request)
+            if path in self._UNPROTECTED_EXACT:
                 return await call_next(request)
             password = getattr(_get_effective_settings(), "ui_password", "")
             if not password:
@@ -600,12 +598,15 @@ def health() -> dict:
 
 
 @app.get("/api/media")
-def api_media():
+async def api_media():
     """Return JSON list of all videos with subtitle status."""
     settings = _get_effective_settings()
     media_root = settings.media_root
     try:
-        entries = scan_directory(media_root, settings)  # generator — iterate only once
+        loop = asyncio.get_running_loop()
+        entries = await loop.run_in_executor(
+            None, lambda: list(scan_directory(media_root, settings))
+        )
         return JSONResponse([entry_to_dict(e, settings) for e in entries])
     except Exception as e:
         logger.error(f"Scan error: {e}")

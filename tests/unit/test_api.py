@@ -508,3 +508,30 @@ class TestApiSettingsValidation:
         assert data["detail"]["status"] == "error"
         assert "media_root is not a directory" in data["detail"]["message"]
         get_settings.cache_clear()
+
+    def test_settings_post_requires_auth_when_password_set(self, tmp_path, monkeypatch):
+        """POST /api/settings returns 401 when password is set and no auth header."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl,en-pl")
+        monkeypatch.setenv("SUBTOOLS_UI_PASSWORD", "secret123")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+
+        from starlette.testclient import TestClient
+
+        client = TestClient(api_module.app)
+
+        resp = client.post(
+            "/api/settings",
+            json={"media_root": str(tmp_path)},
+            headers={},
+        )
+        assert resp.status_code == 401
+        get_settings.cache_clear()

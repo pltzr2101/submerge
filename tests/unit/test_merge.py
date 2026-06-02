@@ -98,14 +98,14 @@ class TestMergeConfig:
 
         assert config.color_bottom == "#FFFFFF"
         assert config.color_top == "#FFFF00"
-        assert config.fontsize == 20
+        assert config.fontsize == 22
         assert config.fontsize_bottom is None
         assert config.fontsize_top is None
         assert config.font_bottom == ""
         assert config.outline == 2.0
         assert config.outline_bottom is None
         assert config.outline_top is None
-        assert config.shadow == 0.0
+        assert config.shadow == 1.0
         assert config.layout == "top-bottom"
 
     def test_per_style_fontsize(self, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path):

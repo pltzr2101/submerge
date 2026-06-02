@@ -30,7 +30,7 @@ class MergeConfig:
 
     color_bottom: str = "#FFFFFF"  # White
     color_top: str = "#FFFF00"  # Yellow
-    fontsize: int = 20
+    fontsize: int = 22
     fontsize_bottom: int | None = None  # None = inherit fontsize
     fontsize_top: int | None = None
     font_bottom: str = ""
@@ -42,16 +42,16 @@ class MergeConfig:
     outline_top: float | None = None
     outline_color_bottom: str = "#000000"
     outline_color_top: str = "#000000"
-    shadow: float = 0.0  # Disabled by default - cleaner look
+    shadow: float = 1.0  # Enabled by default for readability
     shadow_bottom: float | None = None  # None = inherit shadow
     shadow_top: float | None = None
-    margin_v_bottom: int = 30
-    margin_v_top: int = 15
-    margin_h_bottom: int = 20
-    margin_h_top: int = 20
+    margin_v_bottom: float = 30
+    margin_v_top: float = 15
+    margin_h_bottom: float = 20
+    margin_h_top: float = 20
     spacing_bottom: float = 0.0
     spacing_top: float = 0.0
-    stacked_gap: int = 8
+    stacked_gap: int = 40
     layout: Literal["top-bottom", "stacked"] = "top-bottom"
 
 
