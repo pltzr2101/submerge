@@ -286,6 +286,9 @@ class TestSyncSubtitlesToVideo:
         with (
             patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             patch("submerge.sync.subprocess.run") as mock_run,
+            # Patch pathlib.Path.replace globally — sync.py uses `from pathlib import Path`
+            # so there's no module-local name to patch. shutil.copy2 does not use Path.replace,
+            # so this patch only affects the atomic-replace call in sync.py.
             patch("pathlib.Path.replace", side_effect=OSError("atomic replace failed")),
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
