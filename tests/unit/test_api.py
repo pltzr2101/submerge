@@ -233,11 +233,67 @@ class TestPresetDelete:
         get_settings.cache_clear()
 
 
+class TestPresetValidation:
+    """Tests for preset style field validation."""
+
+    @staticmethod
+    def _make_client(tmp_path, monkeypatch, pairs="fr-pl,en-pl"):
+        """Create a TestClient with isolated media_root and config_dir."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", pairs)
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+
+        from starlette.testclient import TestClient
+
+        return TestClient(api_module.app), get_settings
+
+    def test_unknown_style_key_returns_422(self, tmp_path, monkeypatch):
+        """POST /api/presets with unknown style key returns 422."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.post(
+            "/api/presets",
+            json={"name": "bad-preset", "styles": {"unknown_field": "value"}},
+        )
+        assert resp.status_code == 422
+        data = resp.json()
+        assert data["detail"]["status"] == "error"
+        assert "Unknown style fields" in data["detail"]["message"]
+        assert "unknown_field" in data["detail"]["message"]
+
+        get_settings.cache_clear()
+
+    def test_known_style_keys_accepted(self, tmp_path, monkeypatch):
+        """POST /api/presets with known style keys returns 200."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.post(
+            "/api/presets",
+            json={
+                "name": "good-preset",
+                "styles": {"layout": "stacked", "bottom_fontsize": 20},
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+        get_settings.cache_clear()
+
+
 class TestMergeUnknownKeys:
     """Fix 2: api_merge must filter unknown keys from preset overrides."""
 
-    def test_merge_with_unknown_keys_returns_200(self, tmp_path, monkeypatch):
-        """POST /api/merge with a preset containing UI-only keys returns 200."""
+    def test_merge_with_known_style_keys_returns_200(self, tmp_path, monkeypatch):
+        """POST /api/merge with a preset containing known style keys returns 200."""
         monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
         monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
         monkeypatch.setenv("SUBTOOLS_PAIRS", "de-ko")
@@ -259,14 +315,13 @@ class TestMergeUnknownKeys:
         video_path = tmp_path / "TestShow.mkv"
         video_path.touch()
 
-        # Save a preset with an unknown UI-only key (topText)
+        # Save a preset with known style keys (unknown keys rejected by validation)
         resp = client.post(
             "/api/presets",
             json={
                 "name": "with-ui-keys",
                 "styles": {
                     "layout": "top-bottom",
-                    "topText": "Some preview text",
                     "bottom_color": "#FFFFFF",
                     "top_color": "#FFD700",
                 },

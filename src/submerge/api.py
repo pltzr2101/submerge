@@ -1413,6 +1413,14 @@ async def api_presets_save(request: Request):
                 status_code=400,
                 detail={"status": "error", "message": "Cannot override built-in preset"},
             )
+        # Validate style keys against known fields from _DEFAULT_PRESETS
+        known_keys = set(next(iter(_DEFAULT_PRESETS.values())))
+        unknown = [k for k in styles if k not in known_keys]
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": f"Unknown style fields: {unknown}"},
+            )
         presets = _load_presets()
         presets[name] = styles
         _save_custom_presets(presets)
