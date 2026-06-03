@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 LABEL maintainer="pltzr2101" \
-      version="2.1.1" \
+      version="2.1.2" \
       description="Bilingual subtitle merge service for ARR stacks"
 
 RUN apt-get update && \
@@ -18,11 +18,12 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
 RUN uv sync --frozen --no-dev
+RUN ln -sf /app/.venv/bin/submerge /usr/local/bin/submerge
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:8282/health || exit 1
 
 EXPOSE 8282
 STOPSIGNAL SIGTERM
-CMD ["/app/.venv/bin/python", "-m", "submerge.cli", "serve", \
-     "--host", "0.0.0.0", "--log-level", "info"]
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "submerge.cli"]
+CMD ["serve", "--host", "0.0.0.0", "--log-level", "info"]
