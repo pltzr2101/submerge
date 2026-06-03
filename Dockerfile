@@ -15,12 +15,12 @@ ENV PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
-RUN uv sync --frozen --no-dev && \
-    uv pip install --python /app/.venv/bin/python --no-deps .
+RUN uv sync --frozen --no-dev
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:8282/health || exit 1
 
 EXPOSE 8282
 STOPSIGNAL SIGTERM
-CMD ["submerge", "serve", "--host", "0.0.0.0", "--log-level", "info"]
+CMD ["/app/.venv/bin/python", "-m", "submerge.cli", "serve", \
+     "--host", "0.0.0.0", "--log-level", "info"]
