@@ -28,7 +28,7 @@ class TestSyncSubtitles:
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
         with (
-            patch("shutil.which", return_value=None),
+            patch("submerge.sync.shutil.which", return_value=None),
             pytest.raises(FfsubsyncNotFoundError, match="ffsubsync not found"),
         ):
             sync_subtitles(ref_file, input_file, tmp_path / "output.srt")
@@ -38,7 +38,7 @@ class TestSyncSubtitles:
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nTest\n")
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             pytest.raises(SyncError, match="File not found"),
         ):
             sync_subtitles(tmp_path / "nonexistent.srt", input_file, tmp_path / "output.srt")
@@ -48,7 +48,7 @@ class TestSyncSubtitles:
         ref_file = tmp_path / "reference.srt"
         ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             pytest.raises(SyncError, match="File not found"),
         ):
             sync_subtitles(ref_file, tmp_path / "nonexistent.srt", tmp_path / "output.srt")
@@ -60,7 +60,7 @@ class TestSyncSubtitles:
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nTest\n")
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             pytest.raises(SyncError, match="Unsupported format"),
         ):
             sync_subtitles(ref_file, input_file, tmp_path / "output.srt")
@@ -75,8 +75,8 @@ class TestSyncSubtitles:
         tmp_output.write_text("1\n00:00:01,000 --> 00:00:02,000\nSynced\n")
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
-            patch("subprocess.run") as mock_run,
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="offset: 500ms", stderr="")
             result = sync_subtitles(ref_file, input_file)
@@ -95,8 +95,8 @@ class TestSyncSubtitles:
         output_file = tmp_path / "output.srt"
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
-            patch("subprocess.run") as mock_run,
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
         ):
             mock_run.side_effect = subprocess.CalledProcessError(1, "ffs", stderr="sync error")
             with pytest.raises(SyncError, match="ffsubsync failed"):
@@ -111,8 +111,8 @@ class TestSyncSubtitles:
         output_file = tmp_path / "output.srt"
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
-            patch("subprocess.run") as mock_run,
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
             with pytest.raises(SyncError, match="Output file was not created"):
@@ -131,8 +131,8 @@ class TestSyncSubtitles:
 
         caplog.set_level(logging.WARNING, logger="submerge.sync")
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
-            patch("subprocess.run") as mock_run,
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="offset: 35000ms", stderr="")
             result = sync_subtitles(ref_file, input_file)
@@ -180,7 +180,7 @@ class TestSyncSubtitlesToVideo:
         output_file = tmp_path / "output.srt"
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             pytest.raises(SyncError, match="Video file not found"),
         ):
             sync_subtitles_to_video(tmp_path / "nonexistent.mkv", input_file, output_file)
@@ -192,7 +192,7 @@ class TestSyncSubtitlesToVideo:
         output_file = tmp_path / "output.srt"
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             pytest.raises(SyncError, match="File not found"),
         ):
             sync_subtitles_to_video(video, tmp_path / "nonexistent.srt", output_file)
@@ -206,7 +206,7 @@ class TestSyncSubtitlesToVideo:
         output_file = tmp_path / "output.srt"
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             pytest.raises(SyncError, match="Unsupported format"),
         ):
             sync_subtitles_to_video(video, input_file, output_file)
@@ -221,8 +221,8 @@ class TestSyncSubtitlesToVideo:
         tmp_output.write_text("1\n00:00:01,000 --> 00:00:02,000\nSynced\n")
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
-            patch("subprocess.run") as mock_run,
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="shift: 100ms", stderr="")
             result = sync_subtitles_to_video(video, input_file)
@@ -241,8 +241,8 @@ class TestSyncSubtitlesToVideo:
         output_file = tmp_path / "output.srt"
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
-            patch("subprocess.run") as mock_run,
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
         ):
             mock_run.side_effect = subprocess.CalledProcessError(1, "ffs", stderr="sync error")
             with pytest.raises(SyncError, match="ffsubsync failed"):
@@ -257,8 +257,8 @@ class TestSyncSubtitlesToVideo:
         output_file = tmp_path / "output.srt"
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
-            patch("subprocess.run") as mock_run,
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
             with pytest.raises(SyncError, match="Output file was not created"):

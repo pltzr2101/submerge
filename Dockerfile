@@ -5,7 +5,7 @@ LABEL maintainer="pltzr2101" \
       description="Bilingual subtitle merge service for ARR stacks"
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl && \
+    apt-get install -y --no-install-recommends ffmpeg curl gcc python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

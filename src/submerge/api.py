@@ -62,10 +62,11 @@ def _get_sync_lock(path: str) -> asyncio.Lock:
     """Return a per-file asyncio.Lock. Evicts unlocked entries above 1000."""
     lock = _sync_locks.setdefault(path, asyncio.Lock())
     if len(_sync_locks) > 1000:
-        # Evict non-locked entries to cap memory usage
-        stale = [p for p, lk in list(_sync_locks.items()) if not lk.locked() and p != path]
+        stale = [p for p, lk in list(_sync_locks.items()) if p != path and not lk.locked()]
         for p in stale[:500]:
-            _sync_locks.pop(p, None)
+            evicted = _sync_locks.get(p)
+            if evicted is not None and not evicted.locked():
+                _sync_locks.pop(p, None)
     return lock
 
 
