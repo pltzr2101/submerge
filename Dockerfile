@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 LABEL maintainer="pltzr2101" \
-      version="2.1.0" \
+      version="2.1.1" \
       description="Bilingual subtitle merge service for ARR stacks"
 
 RUN apt-get update && \
@@ -11,6 +11,7 @@ RUN apt-get update && \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 ENV PATH="/app/.venv/bin:$PATH"
+# Guarantees src-layout resolution; complements uv pip install --no-deps
 ENV PYTHONPATH="/app/src"
 
 WORKDIR /app
