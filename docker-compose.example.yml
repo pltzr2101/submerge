@@ -10,6 +10,7 @@ services:
     volumes:
       # Media directory — must match Sonarr/Radarr/Bazarr mount paths
       - /path/to/media:/data
+      - /path/to/config:/config   # Persist presets, queue DB, app settings
     environment:
       # Language pairs: bottom-top (comma-separated: de-ko,en-ko)
       - SUBTOOLS_PAIRS=de-ko

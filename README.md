@@ -122,6 +122,7 @@ submerge merge de.srt ko.srt -o bilingual.ass
 | `SUBTOOLS_BOTTOM_MARGIN_H` | `20` | Bottom track horizontal margin |
 | `SUBTOOLS_TOP_MARGIN_H` | `20` | Top track horizontal margin |
 | `SUBTOOLS_BOTTOM_SPACING` | `0.0` | Bottom track letter spacing |
+| `SUBTOOLS_FONT_BOTTOM` | `""` | Font name for bottom track (empty = system default). Use for non-Latin scripts. |
 | `SUBTOOLS_TOP_SPACING` | `0.0` | Top track letter spacing |
 | `SUBTOOLS_STACKED_GAP` | `40` | Gap between stacked subtitle lines (only when `LAYOUT=stacked`) |
 
@@ -132,6 +133,7 @@ submerge merge de.srt ko.srt -o bilingual.ass
 | `SUBTOOLS_MEDIA_ROOT` | `/data` | Root directory for media files (container path) |
 | `SUBTOOLS_POLL_INTERVAL` | `60` | Seconds between background retry checks for missing subtitles |
 | `SUBTOOLS_RETRY_TIMEOUT_H` | `48` | Abandon pending merges after this many hours |
+| `SUBTOOLS_CONFIG_DIR` | `/config` | Directory for persisted config (presets, app settings, queue DB). **Must be mapped to a volume for persistence.** |
 | `SUBTOOLS_UI_USER` | `admin` | Username for Web UI basic auth |
 | `SUBTOOLS_UI_PASSWORD` | `""` | Password for Web UI basic auth (empty = no authentication) |
 | `SUBTOOLS_RATE_LIMIT_RPM` | `30` | Max requests per minute per IP (0 = disabled) |
@@ -180,6 +182,7 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 |--------|------|-------------|
 | `GET` | `/api/media` | List all media with subtitle status (JSON) |
 | `POST` | `/api/merge` | Trigger merge for one video (`{"video_path": "..."}`) |
+| `POST` | `/api/batch-merge` | Trigger merge for multiple videos. Body: `{"video_paths": ["<path>", ...], "template": "<preset>", "overwrite": true}`. Response: `{"results": [{"video": "<name>", "status": "merged"|"skipped"|"error"|"polling", ...}]}` |
 | `POST` | `/api/sync` | Synchronize a subtitle file via ffsubsync |
 | `POST` | `/scan` | Scan all directories, start missing merges |
 | `GET` | `/api/polls` | List active background polling jobs |
@@ -202,6 +205,16 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `DELETE` | `/api/presets/{name}` | Delete a custom preset |
 | `GET` | `/api/frame-extract` | Extract a video frame as JPEG (query: `video_path`, `timestamp_s`) |
 
+### Scheduler & Templates
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/settings/default-template` | Get the currently active default style preset name |
+| `POST` | `/api/settings/default-template` | Set the active default style preset. Body: `{"template": "<preset_name>"}` |
+| `GET` | `/api/settings/schedule` | Get current auto-merge scheduler configuration. Response includes `auto_merge_enabled`, `schedule_time` (HH:MM), `run_on_startup`, `schedule_template` |
+| `POST` | `/api/settings/schedule` | Configure the auto-merge scheduler. Body: `{"auto_merge_enabled": bool, "schedule_time": "HH:MM", "run_on_startup": bool, "schedule_template": "<preset_name_or_empty>"}` |
+| `DELETE` | `/api/media/merged` | Delete merged .ass subtitle file for a specific video. Body: `{"video_path": "<path>"}` |
+
 ### UI & Monitoring
 
 | Method | Path | Description |
@@ -219,8 +232,25 @@ Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282`:
 | Page | Description |
 |------|-------------|
 | **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), per-video merge/sync buttons, batch "merge all missing", search/filter, polling status badge |
-| **Settings** (`/settings`) | Override `SUBTOOLS_*` environment variables at runtime. **In-memory only — changes are lost on container restart.** To make style changes permanent, save them as a Preset and set it as the Default Template in the Style Editor. |
+| **Settings** (`/settings`) | Override `SUBTOOLS_*` environment variables at runtime. **In-memory only — changes are lost on container restart.** To persist style changes permanently: save as a Preset in the Style Editor, then set it as the Default Template via `POST /api/settings/default-template` or the Style Editor UI. |
 | **Style Editor** (`/styles`) | Two-tab editor (Bottom/Top) with color pickers, font size, outline/shadow controls, CJK font selector, canvas preview, preset save/load, ASS export button |
+
+## Auto-Merge Scheduler
+
+Submerge can run a daily automatic merge scan at a configured time using APScheduler.
+
+> **Note:** APScheduler is an optional dependency. If not installed, the scheduler is silently disabled and a warning is logged.
+
+Configure via the **Settings** page (`/settings`) or directly via the API (`POST /api/settings/schedule`):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `auto_merge_enabled` | `false` | Enable/disable the daily scheduled scan |
+| `schedule_time` | `03:00` | Time of day to run (24h format, HH:MM) |
+| `run_on_startup` | `false` | Run a scan immediately when the container starts |
+| `schedule_template` | `""` | Style preset to use for scheduled merges (empty = active default template) |
+
+Schedule settings are persisted to `/config/app_settings.json` and survive container restarts.
 
 ## Development
 
