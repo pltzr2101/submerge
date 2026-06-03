@@ -1,4 +1,5 @@
 # Submerge
+> Originally inspired by [b4stOss/submerge](https://github.com/b4stOss/submerge).
 
 Automatic bilingual subtitle merge service for ARR stacks. Combines two single-language subtitles into a professionally styled bilingual ASS file — with Web UI, Bazarr/Lingarr integration, live style preview, and background retry queue.
 
