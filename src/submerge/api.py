@@ -59,10 +59,14 @@ _sync_locks: dict[str, asyncio.Lock] = {}
 
 
 def _get_sync_lock(path: str) -> asyncio.Lock:
-    """Return a per-file asyncio.Lock."""
-    if path not in _sync_locks:
-        _sync_locks[path] = asyncio.Lock()
-    return _sync_locks[path]
+    """Return a per-file asyncio.Lock. Evicts unlocked entries above 1000."""
+    lock = _sync_locks.setdefault(path, asyncio.Lock())
+    if len(_sync_locks) > 1000:
+        # Evict non-locked entries to cap memory usage
+        stale = [p for p, lk in list(_sync_locks.items()) if not lk.locked() and p != path]
+        for p in stale[:500]:
+            _sync_locks.pop(p, None)
+    return lock
 
 
 def _get_log_queue() -> asyncio.Queue[str]:
@@ -643,7 +647,7 @@ async def api_merge(request: Request):
         if not video_path_str:
             raise HTTPException(
                 status_code=400, detail={"status": "error", "message": "video_path required"}
-            )  # noqa: E501
+            )
 
         video_path = validate_path(video_path_str, "video_path", check_media_root=True)
         overwrite = body.get("overwrite", False)
@@ -861,11 +865,20 @@ async def api_sync(request: Request):
         # Serialize parallel sync calls on the same file
         async with _get_sync_lock(str(sub_path)):
             try:
+                loop = asyncio.get_running_loop()
                 if ref_path:
-                    result = await asyncio.to_thread(sync_subtitles, ref_path, sub_path)
+                    result = await loop.run_in_executor(
+                        None,
+                        sync_subtitles,
+                        ref_path,
+                        sub_path,
+                    )
                 else:
-                    result = await asyncio.to_thread(
-                        sync_subtitles_to_video, video_file, sub_path
+                    result = await loop.run_in_executor(
+                        None,
+                        sync_subtitles_to_video,
+                        video_file,
+                        sub_path,
                     )
             except FfsubsyncNotFoundError:
                 return {"status": "error", "message": "ffsubsync not found"}
@@ -911,7 +924,7 @@ def api_scan(background_tasks: BackgroundTasks):
     return {
         "status": "started",
         "message": "Scan running in background, see /logs/stream for progress",
-    }  # noqa: E501
+    }
 
 
 def _run_scan(settings: SubtoolsSettings) -> dict:
@@ -1361,7 +1374,7 @@ def api_presets_get(name: str):
     if name not in presets:
         raise HTTPException(
             status_code=404, detail={"status": "error", "message": "Preset not found"}
-        )  # noqa: E501
+        )
     return {"name": name, "styles": presets[name]}
 
 
@@ -1375,12 +1388,12 @@ async def api_presets_save(request: Request):
         if not name:
             raise HTTPException(
                 status_code=400, detail={"status": "error", "message": "Name required"}
-            )  # noqa: E501
+            )
         if name in _DEFAULT_PRESETS:
             raise HTTPException(
                 status_code=400,
                 detail={"status": "error", "message": "Cannot override built-in preset"},
-            )  # noqa: E501
+            )
         presets = _load_presets()
         presets[name] = styles
         _save_custom_presets(presets)
@@ -1397,7 +1410,7 @@ def api_presets_delete(name: str):
     if name in _DEFAULT_PRESETS:
         raise HTTPException(
             status_code=400, detail={"status": "error", "message": "Cannot delete built-in preset"}
-        )  # noqa: E501
+        )
 
     presets = _load_presets()
     if name not in presets:
@@ -1413,7 +1426,7 @@ def api_presets_delete(name: str):
         raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": "Cannot delete the active default template"},
-        )  # noqa: E501
+        )
 
     del presets[name]
     _save_custom_presets(presets)

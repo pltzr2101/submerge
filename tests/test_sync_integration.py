@@ -42,7 +42,9 @@ class TestSyncBidirectional:
 
         with patch("submerge.api.sync_subtitles") as mock_sync:
             mock_sync.return_value = MagicMock(
-                success=True, output_path=de_sub, offset_ms=100
+                success=True,
+                output_path=de_sub,
+                offset_ms=100,
             )
             resp = client.post(
                 "/api/sync",
@@ -69,7 +71,9 @@ class TestSyncBidirectional:
 
         with patch("submerge.api.sync_subtitles") as mock_sync:
             mock_sync.return_value = MagicMock(
-                success=True, output_path=ko_sub, offset_ms=100
+                success=True,
+                output_path=ko_sub,
+                offset_ms=100,
             )
             resp = client.post(
                 "/api/sync",
@@ -105,13 +109,14 @@ class TestSyncBackupBehavior:
         def _fake_run(cmd, **kwargs):
             # cmd[-1] is the -o output path (tmp file)
             import pathlib
+
             out = pathlib.Path(cmd[-1])
             out.write_text(synced_content)
             return MagicMock(returncode=0, stdout="offset: 200ms", stderr="")
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
-            patch("subprocess.run", side_effect=_fake_run),
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run", side_effect=_fake_run),
         ):
             resp = client.post(
                 "/api/sync",
@@ -137,9 +142,9 @@ class TestSyncBackupBehavior:
         (tmp_path / "film.mkv").touch()
 
         with (
-            patch("shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             patch(
-                "subprocess.run",
+                "submerge.sync.subprocess.run",
                 side_effect=subprocess.CalledProcessError(1, "ffs", stderr="sync error"),
             ),
         ):
@@ -183,7 +188,13 @@ class TestSyncEdgeCases:
         ko_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\n안녕\n")
         (tmp_path / "film.mkv").touch()
 
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("ffs", 300)):
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch(
+                "submerge.sync.subprocess.run",
+                side_effect=subprocess.TimeoutExpired("ffs", 300),
+            ),
+        ):
             resp = client.post(
                 "/api/sync",
                 json={"subtitle_path": str(de_sub), "lang": "de"},
@@ -256,6 +267,7 @@ class TestSyncParallelSerialization:
             event2.wait()
             call_order.append("finish")
             from submerge.sync import SyncResult
+
             return SyncResult(success=True, output_path=inp, offset_ms=100)
 
         import submerge.api
@@ -264,6 +276,7 @@ class TestSyncParallelSerialization:
 
         with patch("submerge.api.sync_subtitles", side_effect=_slow_sync):
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+
                 async def _post():
                     return await client.post(
                         "/api/sync",

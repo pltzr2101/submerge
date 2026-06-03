@@ -1221,6 +1221,15 @@ dev = [
     { name = "ruff" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "filelock" },
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", specifier = ">=23.0" },
@@ -1245,6 +1254,15 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "filelock", specifier = ">=3.29.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "ruff", specifier = ">=0.14.13" },
+]
 
 [[package]]
 name = "tomli"

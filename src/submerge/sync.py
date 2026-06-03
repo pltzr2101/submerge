@@ -94,7 +94,7 @@ def sync_subtitles(
         raise SyncError(f"Failed to create backup: {e}") from e
 
     # Sync into a temporary file, then atomically replace the original
-    tmp_output = input_path.with_suffix(".srt.tmp")
+    tmp_output = input_path.with_name(input_path.name + ".tmp")
 
     cmd = [
         ffs_cmd,
@@ -189,7 +189,7 @@ def sync_subtitles_to_video(
         raise SyncError(f"Failed to create backup: {e}") from e
 
     # Sync into a temporary file, then atomically replace the original
-    tmp_output = input_path.with_suffix(".srt.tmp")
+    tmp_output = input_path.with_name(input_path.name + ".tmp")
 
     cmd = [
         ffs_cmd,
