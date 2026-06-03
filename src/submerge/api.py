@@ -932,11 +932,18 @@ def api_scan(background_tasks: BackgroundTasks):
         settings,
         app_settings.get("schedule_template", "") or app_settings.get("default_template", ""),
     )
-    background_tasks.add_task(_run_scan, scan_settings)
+    background_tasks.add_task(_scan_background, scan_settings)
     return {
         "status": "started",
         "message": "Scan running in background, see /logs/stream for progress",
     }
+
+
+async def _scan_background(settings: SubtoolsSettings) -> dict:
+    """Async wrapper that protects _run_scan with the batch semaphore and thread pool."""
+    loop = asyncio.get_running_loop()
+    async with _get_batch_semaphore():
+        return await loop.run_in_executor(None, _run_scan, settings)
 
 
 def _run_scan(settings: SubtoolsSettings) -> dict:
