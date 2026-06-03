@@ -15,6 +15,8 @@ COPY pyproject.toml uv.lock ./
 COPY src/ src/
 RUN uv sync --frozen --no-dev
 
+ENV PATH="/app/.venv/bin:$PATH"
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:8282/health || exit 1
 

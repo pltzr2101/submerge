@@ -78,7 +78,7 @@ class TestSyncSubtitles:
             patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             patch("submerge.sync.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="offset: 500ms", stderr="")
+            mock_run.return_value = MagicMock(returncode=0, stdout="offset: 0.5 seconds", stderr="")
             result = sync_subtitles(ref_file, input_file)
         assert result.success is True
         assert result.output_path == input_file  # in-place
@@ -134,9 +134,10 @@ class TestSyncSubtitles:
             patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             patch("submerge.sync.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="offset: 35000ms", stderr="")
+            mock_run.return_value = MagicMock(returncode=0, stdout="offset: 35 seconds", stderr="")
             result = sync_subtitles(ref_file, input_file)
         assert result.success is False
+        assert result.offset_ms == 35000
         assert "Large offset detected" in caplog.text
 
 
@@ -158,16 +159,25 @@ class TestParseOffset:
     """Tests for _parse_offset helper."""
 
     def test_parses_offset_format(self):
-        assert _parse_offset("offset: 1234ms") == 1234
+        assert _parse_offset("offset: 1.234 seconds") == 1234
 
     def test_parses_negative_offset(self):
-        assert _parse_offset("offset: -500ms") == -500
+        assert _parse_offset("Best offset: -0.5 s") == -500
 
     def test_parses_shift_format(self):
-        assert _parse_offset("shift: 2500ms") == 2500
+        assert _parse_offset("shift: 2.5 s") == 2500
+
+    def test_parses_real_ffsubsync_output(self):
+        assert _parse_offset("Detected offset: 1.234 seconds") == 1234
+
+    def test_parses_real_ffsubsync_negative(self):
+        assert _parse_offset("Best offset: -2.5 s") == -2500
 
     def test_returns_none_when_no_match(self):
         assert _parse_offset("no offset info here") is None
+
+    def test_returns_none_for_empty(self):
+        assert _parse_offset("") is None
 
 
 class TestSyncSubtitlesToVideo:
@@ -224,7 +234,7 @@ class TestSyncSubtitlesToVideo:
             patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
             patch("submerge.sync.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="shift: 100ms", stderr="")
+            mock_run.return_value = MagicMock(returncode=0, stdout="shift: 0.1 s", stderr="")
             result = sync_subtitles_to_video(video, input_file)
         assert result.success is True
         assert result.output_path == input_file  # in-place
@@ -263,3 +273,24 @@ class TestSyncSubtitlesToVideo:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
             with pytest.raises(SyncError, match="Output file was not created"):
                 sync_subtitles_to_video(video, input_file, output_file)
+
+    def test_atomic_replace_cleans_up_tmp_on_oserror(self, tmp_path: Path):
+        """SyncError raised on OSError, .tmp cleaned up, .bak preserved."""
+        video = tmp_path / "video.mkv"
+        video.touch()
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output.write_text("synced")
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+            patch("pathlib.Path.replace", side_effect=OSError("atomic replace failed")),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with pytest.raises(SyncError, match="Failed to atomically replace"):
+                sync_subtitles_to_video(video, input_file)
+        assert not tmp_output.exists()
+        bak_path = tmp_path / "input.srt.bak"
+        assert bak_path.exists()

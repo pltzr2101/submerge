@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import json
 import logging
 import re
@@ -304,7 +305,10 @@ def create_app() -> FastAPI:
                 decoded = base64.b64decode(authorization[6:]).decode()
                 provided_user, provided_pass = decoded.split(":", 1)
                 expected_user = getattr(_get_effective_settings(), "ui_user", "admin")
-                if provided_user != expected_user or provided_pass != password:
+                if not hmac.compare_digest(
+                    f"{provided_user}:{provided_pass}",
+                    f"{expected_user}:{password}",
+                ):
                     return Response(
                         status_code=401,
                         headers={"WWW-Authenticate": 'Basic realm="Submerge"'},
@@ -854,6 +858,13 @@ async def api_sync(request: Request):
         ref_path: Path | None = None
         if video_file is not None:
             ref_path = find_subtitle_path(video_file, ref_lang)
+            if ref_path is not None:
+                try:
+                    ref_path = validate_path(str(ref_path), "ref_path", check_media_root=True)
+                except HTTPException:
+                    ref_path = (
+                        None  # Referenz außerhalb media_root → ignorieren, auf Video-Sync fallen
+                    )
             if ref_path and str(ref_path) == str(sub_path):
                 ref_path = None
 

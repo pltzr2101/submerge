@@ -79,6 +79,12 @@ def sync_subtitles(
     reference_path = Path(reference_path)
     input_path = Path(input_path)
 
+    if output_path is not None:
+        logger.warning(
+            "output_path argument is deprecated and ignored. "
+            "Subtitles are always overwritten in-place."
+        )
+
     # Validate input files
     for path in [reference_path, input_path]:
         if not path.exists():
@@ -120,7 +126,13 @@ def sync_subtitles(
         raise SyncError(f"Output file was not created: {tmp_output}")
 
     # Atomically overwrite original (POSIX: rename is atomic)
-    tmp_output.replace(input_path)
+    try:
+        tmp_output.replace(input_path)
+    except OSError as e:
+        tmp_output.unlink(missing_ok=True)
+        raise SyncError(
+            f"Failed to atomically replace original file: {e}. Backup preserved at: {backup_path}"
+        ) from e
     logger.info(f"Original overwritten in-place: {input_path}")
 
     # Parse offset from output (if available)
@@ -173,6 +185,12 @@ def sync_subtitles_to_video(
     video_path = Path(video_path)
     input_path = Path(input_path)
 
+    if output_path is not None:
+        logger.warning(
+            "output_path argument is deprecated and ignored. "
+            "Subtitles are always overwritten in-place."
+        )
+
     # Validate input files
     if not video_path.exists():
         raise SyncError(f"Video file not found: {video_path}")
@@ -217,7 +235,13 @@ def sync_subtitles_to_video(
         raise SyncError(f"Output file was not created: {tmp_output}")
 
     # Atomically overwrite original
-    tmp_output.replace(input_path)
+    try:
+        tmp_output.replace(input_path)
+    except OSError as e:
+        tmp_output.unlink(missing_ok=True)
+        raise SyncError(
+            f"Failed to atomically replace original file: {e}. Backup preserved at: {backup_path}"
+        ) from e
     logger.info(f"Original overwritten in-place: {input_path}")
 
     # Parse offset from output (if available)
@@ -239,16 +263,13 @@ def sync_subtitles_to_video(
 
 
 def _parse_offset(output: str) -> int | None:
-    """Try to parse offset from ffsubsync output."""
-    # ffsubsync displays info about applied offset
-    # Typical format: "offset: 1234ms" or similar
-    match = re.search(r"offset[:\s]+(-?\d+)\s*ms", output, re.IGNORECASE)
+    """Try to parse offset from ffsubsync output (returns milliseconds)."""
+    # ffsubsync outputs seconds: "Detected offset: 1.234 seconds" or "Best offset: -2.1 s"
+    match = re.search(
+        r"(?:offset|shift)[:\s]+(-?\d+(?:\.\d+)?)\s*s(?:econds?)?",
+        output,
+        re.IGNORECASE,
+    )
     if match:
-        return int(match.group(1))
-
-    # Alternative format
-    match = re.search(r"shift[:\s]+(-?\d+)\s*ms", output, re.IGNORECASE)
-    if match:
-        return int(match.group(1))
-
+        return int(float(match.group(1)) * 1000)
     return None
