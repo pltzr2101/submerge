@@ -192,7 +192,7 @@ def find_subtitle_path(video_path: Path, lang: str) -> Path | None:
     alias_set = {a.lower() for a in aliases}
     variant_suffixes = {"hi", "sdh", "cc", "forced"}
 
-    candidates: list[Path] = []
+    candidates: list[tuple[int, Path]] = []
     try:
         for entry in video_dir.iterdir():
             if not entry.is_file():
@@ -215,7 +215,7 @@ def find_subtitle_path(video_path: Path, lang: str) -> Path | None:
                 continue
             # File is relevant — classify as normal or variant
             has_variant = any(p in variant_suffixes for p in parts)
-            candidates.append((0 if not has_variant else 1, entry))
+            candidates.append((0 if not has_variant else 1, Path(entry)))
     except OSError:
         pass
 

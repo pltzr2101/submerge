@@ -101,6 +101,17 @@ class TestFindSubtitlePath:
         result = find_subtitle_path(video, "de")
         assert result == hi_sub
 
+    def test_case_insensitive_fallback_returns_path(self, tmp_path: Path):
+        """Case-insensitive fallback returns Path, not os.DirEntry."""
+        video = tmp_path / "Movie.mkv"
+        video.touch()
+        sub = tmp_path / "Movie.DE.SRT"
+        sub.touch()
+
+        result = find_subtitle_path(video, "de")
+        assert isinstance(result, Path)
+        assert result == sub
+
     def test_ass_output_not_used_as_subtitle_input(self, tmp_path: Path):
         """Generated .ass output is never picked up as subtitle input."""
         video = tmp_path / "Movie.mkv"
