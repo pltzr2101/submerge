@@ -33,8 +33,15 @@ def api_queue():
     """Return all queue entries (pending, done, failed)."""
     settings = _get_effective_settings()
     try:
-        entries = get_all_entries(settings=settings)
-        return JSONResponse({"entries": entries, "count": len(entries)})
+        result = get_all_entries(settings=settings)
+        return JSONResponse(
+            {
+                "entries": result["entries"],
+                "count": len(result["entries"]),
+                "total": result["total"],
+                "truncated": result["truncated"],
+            }
+        )
     except Exception as e:
         logger.error(f"Queue fetch error: {e}")
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e

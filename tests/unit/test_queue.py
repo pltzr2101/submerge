@@ -42,7 +42,7 @@ class TestEnqueueDequeue:
         (tmp_path / "media" / "Show.de.srt").touch()
 
         enqueue(video, queue_settings)
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert len(entries) == 1
         assert entries[0]["video_name"] == "Show.mkv"
         assert entries[0]["status"] == "pending"
@@ -55,7 +55,7 @@ class TestEnqueueDequeue:
         assert enqueue(video, queue_settings) is True  # New
         assert enqueue(video, queue_settings) is False  # Updated
 
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert len(entries) == 1
 
     def test_dequeue_marks_done(self, tmp_path, queue_settings):
@@ -65,7 +65,7 @@ class TestEnqueueDequeue:
         enqueue(video, queue_settings)
         dequeue(video, "done", settings=queue_settings)
 
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert entries[0]["status"] == "done"
 
     def test_dequeue_marks_failed(self, tmp_path, queue_settings):
@@ -75,7 +75,7 @@ class TestEnqueueDequeue:
         enqueue(video, queue_settings)
         dequeue(video, "failed", "Test error", settings=queue_settings)
 
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert entries[0]["status"] == "failed"
         assert entries[0]["error_msg"] == "Test error"
 
@@ -86,7 +86,7 @@ class TestEnqueueDequeue:
         enqueue(video, queue_settings)
         remove_entry(video, settings=queue_settings)
 
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert len(entries) == 0
 
     def test_tracks_present_and_missing(self, tmp_path, queue_settings):
@@ -96,7 +96,7 @@ class TestEnqueueDequeue:
         # No ko.srt
 
         enqueue(video, queue_settings)
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert "de" in entries[0]["langs_present"]
         assert "ko" in entries[0]["langs_missing"]
 
@@ -119,7 +119,7 @@ class TestProcessQueue:
         assert (tmp_path / "media" / "Show.de-ko.ass").exists()
 
         # Entry should be marked done
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert entries[0]["status"] == "done"
 
     def test_keeps_pending_when_langs_missing(self, tmp_path, queue_settings):
@@ -132,7 +132,7 @@ class TestProcessQueue:
 
         assert result["merged"] == 0
         assert result["still_pending"] >= 1
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert entries[0]["status"] == "pending"
 
     def test_fails_on_missing_video(self, tmp_path, queue_settings):
@@ -142,7 +142,7 @@ class TestProcessQueue:
         result = process_queue(queue_settings)
 
         assert result["failed"] >= 1
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert entries[0]["status"] == "failed"
 
 
@@ -178,7 +178,7 @@ class TestRecordFailed:
 
         record_failed(video, "something broke", settings=queue_settings)
 
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert len(entries) == 1
         assert entries[0]["status"] == "failed"
         assert entries[0]["error_msg"] == "something broke"
@@ -194,7 +194,7 @@ class TestRecordFailed:
         enqueue(video, queue_settings)
         record_failed(video, "merge crashed", settings=queue_settings)
 
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert len(entries) == 1
         assert entries[0]["status"] == "failed"
         assert entries[0]["error_msg"] == "merge crashed"
@@ -208,7 +208,71 @@ class TestRecordFailed:
 
         record_failed(video, "file missing", settings=queue_settings)
 
-        entries = get_all_entries(settings=queue_settings)
+        entries = get_all_entries(settings=queue_settings)["entries"]
         assert len(entries) == 1
         assert entries[0]["status"] == "failed"
         assert entries[0]["video_name"] == "gone.mkv"
+
+
+class TestGetAllEntriesTruncation:
+    """Tests for get_all_entries truncation info."""
+
+    def test_no_truncation_when_few_entries(self, tmp_path, queue_settings):
+        """truncated=False and total matches count when under limit."""
+        video = tmp_path / "media" / "Show.mkv"
+        video.touch()
+
+        enqueue(video, queue_settings)
+        result = get_all_entries(settings=queue_settings)
+        assert result["truncated"] is False
+        assert result["total"] == 1
+        assert len(result["entries"]) == 1
+
+    def test_truncation_total_accurate(self, tmp_path, queue_settings):
+        """total reflects true count even when entries are truncated."""
+        # Create multiple entries
+        for i in range(3):
+            v = tmp_path / "media" / f"Show{i}.mkv"
+            v.touch()
+            enqueue(v, queue_settings)
+
+        result = get_all_entries(settings=queue_settings)
+        assert result["total"] == 3
+        assert result["truncated"] is False
+        assert len(result["entries"]) == 3
+
+    def test_empty_returns_zero_total(self, tmp_path, queue_settings):
+        """Empty queue returns total=0, truncated=False."""
+        result = get_all_entries(settings=queue_settings)
+        assert result["total"] == 0
+        assert result["truncated"] is False
+        assert result["entries"] == []
+
+
+class TestProcessQueueBackoff:
+    """Tests for exponential backoff on queue merge failure."""
+
+    def test_backoff_skips_recent_retries(self, tmp_path, queue_settings):
+        """After a merge failure, immediate re-enqueue is skipped due to backoff."""
+        video = tmp_path / "media" / "Show.mkv"
+        video.touch()
+        (tmp_path / "media" / "Show.de.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+        (tmp_path / "media" / "Show.ko.srt").write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n테스트\n"
+        )
+
+        enqueue(video, queue_settings)
+
+        # Simulate a merge that always raises
+        def _failing_merge(*args, **kwargs):
+            raise RuntimeError("simulated failure")
+
+        # 1st attempt — should fail and stay pending (backoff 1 min)
+        result = process_queue(queue_settings, merge_fn=_failing_merge)
+        assert result["still_pending"] == 1
+        assert result["failed"] == 0
+
+        all_entries = get_all_entries(settings=queue_settings)["entries"]
+        assert all_entries[0]["status"] == "pending"
+        # attempt_count stays unchanged because backoff skipped the re-enqueue
+        assert all_entries[0]["attempt_count"] == 0

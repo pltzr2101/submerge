@@ -287,20 +287,29 @@ def get_pending_entries(settings: SubtoolsSettings | None = None) -> list[QueueE
         conn.close()
 
 
-def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, Any]]:
-    """Get all queue entries as JSON-serializable dicts."""
+def get_all_entries(settings: SubtoolsSettings | None = None) -> dict[str, Any]:
+    """Get queue entries as JSON-serializable dict with truncation info.
+
+    Returns:
+        Dict with keys:
+            entries: list of entry dicts (max _QUEUE_MAX_ENTRIES)
+            total: total number of entries in the DB
+            truncated: True if total > _QUEUE_MAX_ENTRIES
+    """
     conn = _get_connection(settings=settings)
     if conn is None:
-        return []
+        return {"entries": [], "total": 0, "truncated": False}
     try:
         conn.row_factory = sqlite3.Row
+        total = conn.execute("SELECT COUNT(*) FROM pending_merges").fetchone()[0]
         rows = conn.execute(
-            f"""SELECT id, video_path, langs_present, langs_missing,
+            """SELECT id, video_path, langs_present, langs_missing,
                       first_seen, last_checked, attempt_count, status, error_msg,
                       duration_ms, output_files
-               FROM pending_merges ORDER BY first_seen DESC LIMIT {_QUEUE_MAX_ENTRIES}"""
+               FROM pending_merges ORDER BY first_seen DESC LIMIT ?""",
+            (_QUEUE_MAX_ENTRIES,),
         ).fetchall()
-        return [
+        entries = [
             {
                 "id": row["id"],
                 "video_path": row["video_path"],
@@ -317,6 +326,11 @@ def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, 
             }
             for row in rows
         ]
+        return {
+            "entries": entries,
+            "total": total,
+            "truncated": total > _QUEUE_MAX_ENTRIES,
+        }
     finally:
         conn.close()
 
@@ -327,13 +341,21 @@ def process_queue(
 ) -> dict[str, int]:
     """Process all pending queue entries.
 
+
     Called by the background worker. Attempts to merge for each
     pending entry where all languages are now present.
+
+
+    Retry logic: on merge failure, entries are re-queued with exponential
+    backoff (2^attempt_count minutes, capped at 60 minutes). After 10
+    failed attempts the entry is permanently marked as 'failed'.
+
 
     Args:
         settings: Configuration
         merge_fn: Optional merge callback (video_path, sub_paths, settings) -> list[Path]
                   Defaults to process_bilingual_merge from hook if not provided.
+
 
     Returns:
         Dict with counts: {"checked": N, "merged": N, "failed": N, "still_pending": N}
@@ -416,6 +438,19 @@ def process_queue(
                 dequeue(video_path, "failed", str(e), settings=settings)
                 failed += 1
             else:
+                # Exponential backoff: wait 2^attempt_count minutes before retrying
+                # (capped at 60 minutes). Skip re-enqueue if not enough time has passed.
+                backoff_minutes = min(2**entry.attempt_count, 60)
+                try:
+                    last_checked = datetime.fromisoformat(entry.last_checked)
+                    elapsed_minutes = (
+                        datetime.now(timezone.utc) - last_checked
+                    ).total_seconds() / 60
+                    if elapsed_minutes < backoff_minutes:
+                        still_pending += 1
+                        continue
+                except (ValueError, TypeError):
+                    pass
                 enqueue(video_path, settings)
                 still_pending += 1
 

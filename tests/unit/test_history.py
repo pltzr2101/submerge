@@ -86,7 +86,7 @@ class TestGetHistory:
         removed = clear_history(settings=history_settings)
         assert removed == 1
 
-        all_entries = get_all_entries(settings=history_settings)
+        all_entries = get_all_entries(settings=history_settings)["entries"]
         assert len(all_entries) == 1
         assert all_entries[0]["status"] == "pending"
 
