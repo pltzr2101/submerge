@@ -893,22 +893,22 @@ async def _execute_scheduled_merge() -> None:
     Uses an asyncio.Lock to prevent overlapping executions if a scan
     takes longer than the configured cron interval.
     """
-    if _schedule_merge_lock is None or _schedule_merge_lock.locked():
+    if _schedule_merge_lock is None or not _schedule_merge_lock.locked():
+        async with _schedule_merge_lock:
+            settings = _get_schedule_merge_settings()
+            template = _load_app_settings().get("schedule_template", "") or "(default)"
+            logger.info(f"Scheduled auto-merge job started (template: {template})")
+            try:
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, _run_scan, settings)
+                logger.info(
+                    f"Scheduled auto-merge complete: {result['merged']} merged, "
+                    f"{result['polling']} polling"
+                )
+            except Exception as exc:
+                logger.error(f"Scheduled auto-merge failed: {exc}")
+    else:
         logger.warning("Scheduled auto-merge skipped: previous run still in progress")
-        return
-    async with _schedule_merge_lock:
-        settings = _get_schedule_merge_settings()
-        template = _load_app_settings().get("schedule_template", "") or "(default)"
-        logger.info(f"Scheduled auto-merge job started (template: {template})")
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, _run_scan, settings)
-            logger.info(
-                f"Scheduled auto-merge complete: {result['merged']} merged, "
-                f"{result['polling']} polling"
-            )
-        except Exception as exc:
-            logger.error(f"Scheduled auto-merge failed: {exc}")
 
 
 # Include modular routers (imported at end to avoid circular imports)
