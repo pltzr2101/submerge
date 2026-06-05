@@ -351,6 +351,21 @@ async function executeMerge() {
             body: JSON.stringify(body),
         });
         const data = await resp.json();
+        if (!resp.ok) {
+            // Extract detailed error from FastAPI detail field
+            const detail = data?.detail;
+            let errMsg = 'Merge fehlgeschlagen';
+            if (typeof detail === 'string') {
+                errMsg = detail;
+            } else if (detail?.message) {
+                errMsg = detail.message;
+            } else if (data?.message) {
+                errMsg = data.message;
+            }
+            showStatus('Merge fehlgeschlagen: ' + errMsg, 'error');
+            setTimeout(loadMedia, 2000);
+            return;
+        }
         if (data.status === 'merged') {
             showStatus('Merge completed: ' + (data.files || []).join(', '), 'success');
         } else if (data.status === 'polling') {
@@ -422,10 +437,19 @@ async function doScan() {
 
 function showStatus(msg, type) {
     const el = document.getElementById('statusMsg');
-    el.textContent = msg;
     el.className = 'status-msg status-' + type;
+    // Clear previous auto-hide timer
+    if (el._hideTimer) clearTimeout(el._hideTimer);
+    // Build content: message + close button for errors
+    if (type === 'error') {
+        el.innerHTML = `<span class="status-text">${escHtml(msg)}</span>
+            <button class="status-close" onclick="document.getElementById('statusMsg').classList.add('hidden')" title="Dismiss">&times;</button>`;
+    } else {
+        el.textContent = msg;
+    }
     el.classList.remove('hidden');
-    setTimeout(() => el.classList.add('hidden'), 5000);
+    const timeout = type === 'error' ? 20000 : 5000;
+    el._hideTimer = setTimeout(() => el.classList.add('hidden'), timeout);
 }
 
 function showLoading(show) {
@@ -495,9 +519,19 @@ async function executeBatchReMerge() {
         if (merged) parts.push(`${merged} merged`);
         if (skipped) parts.push(`${skipped} skipped`);
         if (polling) parts.push(`${polling} polling`);
-        if (errors) parts.push(`${errors} errors`);
-        const msg = 'Batch re-merge: ' + (parts.length ? parts.join(', ') : 'nothing to do');
-        showStatus(msg, errors > 0 ? 'warning' : 'success');
+        if (errors) {
+            parts.push(`${errors} errors`);
+            // Accumulate up to 3 detailed error reasons
+            const errorReasons = results
+                .filter(r => r.status === 'error')
+                .slice(0, 3)
+                .map(r => r.reason || 'unknown error');
+            if (errorReasons.length) {
+                parts.push(`(${errorReasons.join('; ')})`);
+            }
+        }
+        const msg = 'Batch re-merge: ' + (parts.length ? parts.join(' ') : 'nothing to do');
+        showStatus(msg, errors > 0 ? 'error' : 'success');
     } catch (e) {
         showStatus('Batch re-merge failed: ' + e.message, 'error');
     }
