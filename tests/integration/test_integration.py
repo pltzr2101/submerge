@@ -120,7 +120,6 @@ class TestMergeIntegration:
 
         config = MergeConfig(
             layout="stacked",
-            fontsize=20,
             fontsize_bottom=20,
             fontsize_top=20,
             outline_bottom=2.0,

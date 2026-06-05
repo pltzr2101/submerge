@@ -318,7 +318,7 @@ class TestMergeConfigExpanded:
             assert config.font_top == ""
             assert config.bold_bottom is True
             assert config.bold_top is False
-            assert config.outline == 3.0
+            assert config.outline_bottom == 3.0
             assert config.outline_color_bottom == "#111111"
             assert config.outline_color_top == "#222222"
             assert config.shadow_bottom == 2.0
@@ -354,7 +354,7 @@ class TestMergeConfigExpanded:
             assert config.font_bottom == ""  # empty string default
             assert config.font_top == ""  # empty string default
             assert config.bold_bottom is False
-            assert config.outline == 2.0
+            assert config.outline_bottom == 2.0
 
 
 class TestPollingQueueInteraction:
