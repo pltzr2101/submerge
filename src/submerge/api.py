@@ -34,10 +34,14 @@ from .config import SubtoolsSettings, get_settings
 from .hook import (
     InvalidLanguageError,
     ProcessingError,
+    cancel_polling,
     check_all_languages_present,
     find_subtitle_path,
     get_active_polls,
+    get_present_and_missing,
+    process_bilingual_merge,
     process_hook,
+    should_skip_existing,
     start_polling,
 )
 from .scanner import entry_to_dict, find_videos_needing_merge, scan_directory
@@ -64,14 +68,15 @@ _sync_locks: dict[str, asyncio.Lock] = {}
 
 
 def _get_sync_lock(path: str) -> asyncio.Lock:
-    """Return a per-file asyncio.Lock. Evicts unlocked entries above 1000."""
+    """Return a per-file asyncio.Lock. Evicts unlocked entries above 200."""
     lock = _sync_locks.setdefault(path, asyncio.Lock())
-    if len(_sync_locks) > 1000:
+    if len(_sync_locks) > 200:
         stale = [p for p, lk in list(_sync_locks.items()) if p != path and not lk.locked()]
-        for p in stale[:500]:
-            evicted = _sync_locks.get(p)
-            if evicted is not None and not evicted.locked():
-                _sync_locks.pop(p, None)
+        for p in stale[:100]:
+            evicted = _sync_locks.pop(p, None)
+            # Already verified unlocked above; double-check to avoid race
+            if evicted is not None and evicted.locked():
+                _sync_locks[p] = evicted  # Put it back
     return lock
 
 
@@ -670,12 +675,8 @@ async def api_merge(request: Request):
         merge_settings = _apply_template(settings, template_name)
 
         # Find subtitle paths for all required languages
-        from .hook import check_all_languages_present, process_bilingual_merge, should_skip_existing
-
         sub_paths = check_all_languages_present(video_path, merge_settings)
         if sub_paths is None:
-            from .hook import get_present_and_missing
-
             present, missing = get_present_and_missing(video_path, merge_settings)
             start_polling(video_path, merge_settings)
             return {
@@ -690,8 +691,6 @@ async def api_merge(request: Request):
             return {"status": "skipped", "reason": "already_exists"}
 
         # Run merge in thread to not block uvicorn worker
-        from .hook import cancel_polling
-
         cancel_polling(video_path)
 
         loop = asyncio.get_running_loop()
@@ -710,6 +709,39 @@ async def api_merge(request: Request):
     except Exception as e:
         logger.exception(f"Merge error: {e}")
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
+
+
+def _merge_one_video(
+    video_path: Path,
+    merge_settings: SubtoolsSettings,
+    overwrite: bool,
+) -> dict[str, Any]:
+    """Check and merge a single video; returns a result dict for batch responses.
+
+    Runs synchronously (intended to be called via ``run_in_executor``).
+    """
+    try:
+        if not video_path.exists():
+            return {"video": video_path.name, "status": "error", "reason": "Video file not found"}
+
+        sub_paths = check_all_languages_present(video_path, merge_settings)
+        if sub_paths is None:
+            present, missing = get_present_and_missing(video_path, merge_settings)
+            start_polling(video_path, merge_settings)
+            return {"video": video_path.name, "status": "polling", "reason": f"Missing: {missing}"}
+
+        if not overwrite and should_skip_existing(video_path, sub_paths, merge_settings):
+            return {"video": video_path.name, "status": "skipped", "reason": "already_exists"}
+
+        created_files = process_bilingual_merge(video_path, sub_paths, merge_settings)
+        return {
+            "video": video_path.name,
+            "status": "merged",
+            "files": [str(f) for f in created_files],
+        }
+    except Exception as e:
+        logger.error(f"Batch re-merge error for {video_path.name}: {e}")
+        return {"video": video_path.name, "status": "error", "reason": str(e)}
 
 
 @app.post("/api/batch-merge")
@@ -740,51 +772,11 @@ async def api_batch_merge(request: Request):
         base_settings = _get_effective_settings()
         merge_settings = _apply_template(base_settings, template_name)
 
-        from .hook import check_all_languages_present, process_bilingual_merge, should_skip_existing
-
         async def _merge_one(video_path: Path) -> dict[str, Any]:
             async with _get_batch_semaphore():
                 return await asyncio.get_running_loop().run_in_executor(
-                    None, _check_one, video_path
+                    None, _merge_one_video, video_path, merge_settings, overwrite
                 )
-
-        def _check_one(video_path: Path) -> dict[str, Any]:
-            try:
-                if not video_path.exists():
-                    return {
-                        "video": video_path.name,
-                        "status": "error",
-                        "reason": "Video file not found",
-                    }
-
-                sub_paths = check_all_languages_present(video_path, merge_settings)
-                if sub_paths is None:
-                    from .hook import get_present_and_missing
-
-                    present, missing = get_present_and_missing(video_path, merge_settings)
-                    start_polling(video_path, merge_settings)
-                    return {
-                        "video": video_path.name,
-                        "status": "polling",
-                        "reason": f"Missing: {missing}",
-                    }
-
-                if not overwrite and should_skip_existing(video_path, sub_paths, merge_settings):
-                    return {
-                        "video": video_path.name,
-                        "status": "skipped",
-                        "reason": "already_exists",
-                    }
-
-                created_files = process_bilingual_merge(video_path, sub_paths, merge_settings)
-                return {
-                    "video": video_path.name,
-                    "status": "merged",
-                    "files": [str(f) for f in created_files],
-                }
-            except Exception as e:
-                logger.error(f"Batch re-merge error for {video_path.name}: {e}")
-                return {"video": video_path.name, "status": "error", "reason": str(e)}
 
         tasks = [
             _merge_one(validate_path(p, "video_paths[]", check_media_root=True))
@@ -981,8 +973,6 @@ def _run_scan(settings: SubtoolsSettings) -> dict:
                     polling += 1
                     continue
 
-                from .hook import process_bilingual_merge, should_skip_existing
-
                 if should_skip_existing(video_path, sub_paths, settings):
                     continue
 
@@ -1074,7 +1064,6 @@ async def api_queue_retry(entry_id: int):
     sub_paths = check_all_languages_present(video_path, settings)
     if sub_paths is None:
         return {"status": "still_waiting", "message": "Not all languages present yet"}
-    from .hook import process_bilingual_merge, should_skip_existing
 
     if should_skip_existing(video_path, sub_paths, settings):
         dequeue(video_path, "done", settings=settings)
@@ -1345,8 +1334,8 @@ def _get_schedule_defaults() -> dict[str, Any]:
 def _get_schedule_merge_settings() -> SubtoolsSettings:
     """Build SubtoolsSettings for an auto-merge run using the configured template."""
     base = _get_effective_settings()
-    app_settings = _load_app_settings()
-    template = app_settings.get("schedule_template", "") or app_settings.get("default_template", "")
+    defaults = _get_schedule_defaults()
+    template = defaults.get("schedule_template", "") or ""
     return _apply_template(base, template)
 
 

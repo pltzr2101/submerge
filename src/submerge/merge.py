@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import logging
 import re
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -24,29 +23,24 @@ class InvalidSubtitleError(Exception):
 class MergeConfig:
     """Configuration for bilingual merge.
 
-    Per-style fields (fontsize_bottom, fontsize_top, outline_bottom,
-    outline_top) default to None, falling back to the generic ``fontsize``
-    and ``outline`` values. Set per-style fields explicitly for
-    language-specific sizing.
+    All style properties have per-language variants (``*_bottom``,
+    ``*_top``) for language-specific sizing and styling.
     """
 
     color_bottom: str = "#FFFFFF"  # White
     color_top: str = "#FFFF00"  # Yellow
-    fontsize: int = 22
-    fontsize_bottom: int | None = None  # None = inherit fontsize
-    fontsize_top: int | None = None
+    fontsize_bottom: int = 22
+    fontsize_top: int = 22
     font_bottom: str = ""
     font_top: str = ""
     bold_bottom: bool = False
     bold_top: bool = False
-    outline: float = 2.0
-    outline_bottom: float | None = None  # None = inherit outline
-    outline_top: float | None = None
+    outline_bottom: float = 2.0
+    outline_top: float = 2.0
     outline_color_bottom: str = "#000000"
     outline_color_top: str = "#000000"
-    shadow: float = 1.0  # Enabled by default for readability
-    shadow_bottom: float | None = None  # None = inherit shadow
-    shadow_top: float | None = None
+    shadow_bottom: float = 1.0
+    shadow_top: float = 1.0
     margin_v_bottom: float = 20
     margin_v_top: float = 20
     margin_h_bottom: float = 20
@@ -197,29 +191,15 @@ def merge_bilingual(
     # Create output file
     merged = SSAFile()
 
-    # Resolve fonts, shadows, fontsize, outline
+    # Resolve fonts and style parameters
     font_bottom = config.font_bottom
     font_top = config.font_top
-    shadow_bottom = config.shadow_bottom if config.shadow_bottom is not None else config.shadow
-    shadow_top = config.shadow_top if config.shadow_top is not None else config.shadow
-    if config.fontsize_bottom is None or config.fontsize_top is None:
-        warnings.warn(
-            "MergeConfig.fontsize is deprecated; set fontsize_bottom and fontsize_top explicitly.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-    fontsize_bottom = (
-        config.fontsize_bottom if config.fontsize_bottom is not None else config.fontsize
-    )
-    fontsize_top = config.fontsize_top if config.fontsize_top is not None else config.fontsize
-    if config.outline_bottom is None or config.outline_top is None:
-        warnings.warn(
-            "MergeConfig.outline is deprecated; use outline_bottom / outline_top",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-    outline_bottom = config.outline_bottom if config.outline_bottom is not None else config.outline
-    outline_top = config.outline_top if config.outline_top is not None else config.outline
+    shadow_bottom = config.shadow_bottom
+    shadow_top = config.shadow_top
+    fontsize_bottom = config.fontsize_bottom
+    fontsize_top = config.fontsize_top
+    outline_bottom = config.outline_bottom
+    outline_top = config.outline_top
 
     bold_bottom = -1 if config.bold_bottom else 0
     bold_top = -1 if config.bold_top else 0

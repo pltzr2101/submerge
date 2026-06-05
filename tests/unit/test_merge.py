@@ -98,20 +98,18 @@ class TestMergeConfig:
 
         assert config.color_bottom == "#FFFFFF"
         assert config.color_top == "#FFFF00"
-        assert config.fontsize == 22
-        assert config.fontsize_bottom is None
-        assert config.fontsize_top is None
+        assert config.fontsize_bottom == 22
+        assert config.fontsize_top == 22
         assert config.font_bottom == ""
-        assert config.outline == 2.0
-        assert config.outline_bottom is None
-        assert config.outline_top is None
-        assert config.shadow == 1.0
+        assert config.outline_bottom == 2.0
+        assert config.outline_top == 2.0
+        assert config.shadow_bottom == 1.0
+        assert config.shadow_top == 1.0
         assert config.layout == "top-bottom"
 
     def test_per_style_fontsize(self, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path):
         """merge_bilingual applies distinct fontsize_bottom/fontsize_top."""
         config = MergeConfig(
-            fontsize=14,
             fontsize_bottom=22,
             fontsize_top=16,
             outline_bottom=2.0,

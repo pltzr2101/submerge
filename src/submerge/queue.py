@@ -21,7 +21,12 @@ from typing import Any, Literal
 from .config import SubtoolsSettings, get_settings
 from .models import QueueEntry
 
+# hook imports are intentionally local (not module-level) to avoid
+# circular imports: hook.py imports dequeue/enqueue from queue.py
+
 logger = logging.getLogger(__name__)
+
+_QUEUE_MAX_ENTRIES = 500
 
 
 def _get_db_path(settings: SubtoolsSettings | None = None) -> Path:
@@ -32,7 +37,6 @@ def _get_db_path(settings: SubtoolsSettings | None = None) -> Path:
         data_dir.mkdir(parents=True, exist_ok=True)
     except (PermissionError, OSError) as e:
         logger.warning(f"Cannot create config dir {data_dir}: {e}")
-        pass  # Will be handled by callers
     return data_dir / "queue.db"
 
 
@@ -251,10 +255,10 @@ def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, 
     try:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            """SELECT id, video_path, langs_present, langs_missing,
+            f"""SELECT id, video_path, langs_present, langs_missing,
                       first_seen, last_checked, attempt_count, status, error_msg,
                       duration_ms, output_files
-               FROM pending_merges ORDER BY first_seen DESC LIMIT 500"""
+               FROM pending_merges ORDER BY first_seen DESC LIMIT {_QUEUE_MAX_ENTRIES}"""
         ).fetchall()
         return [
             {

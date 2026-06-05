@@ -533,12 +533,10 @@ def process_bilingual_merge(
         font_top=settings.font_top,
         bold_bottom=settings.bottom_bold,
         bold_top=settings.top_bold,
-        outline=settings.bottom_outline,
         outline_bottom=settings.bottom_outline,
         outline_top=settings.top_outline,
         outline_color_bottom=settings.bottom_outline_color,
         outline_color_top=settings.top_outline_color,
-        shadow=0.0,
         shadow_bottom=settings.bottom_shadow,
         shadow_top=settings.top_shadow,
         margin_v_bottom=settings.bottom_margin_v,
@@ -679,7 +677,7 @@ def get_active_polls() -> list[str]:
         return list(_polling_jobs.keys())
 
 
-def get_polling_jobs() -> dict[str, threading.Event]:
+def _get_polling_jobs() -> dict[str, threading.Event]:
     """Return a snapshot copy of the polling jobs dict (for testing)."""
     with _polling_jobs_lock:
         return dict(_polling_jobs)
