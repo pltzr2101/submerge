@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Verlauf{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Merge-Verlauf</h1>
+    <div class="toolbar">
+        <button class="btn btn-sm" id="btnAll" data-filter="all" onclick="setFilter('all')">Alle</button>
+        <button class="btn btn-sm btn-success" id="btnDone" data-filter="done" onclick="setFilter('done')">Merged</button>
+        <button class="btn btn-sm btn-danger" id="btnFailed" data-filter="failed" onclick="setFilter('failed')">Fehlgeschlagen</button>
+        <button class="btn btn-sm btn-danger" onclick="clearHistory()" style="margin-left:auto;">Verlauf löschen</button>
+    </div>
+</div>
+
+<div id="statusMsg" class="status-msg hidden"></div>
+
+<table class="media-table" id="historyTable">
+    <thead>
+        <tr>
+            <th>Status</th>
+            <th>Video</th>
+            <th>Dauer</th>
+            <th>Ausgabedateien</th>
+            <th>Zeitstempel</th>
+        </tr>
+    </thead>
+    <tbody id="historyTbody">
+        <tr><td colspan="5" class="loading-cell">Loading...</td></tr>
+    </tbody>
+</table>
+
+<div id="emptyState" class="empty-state hidden">
+    <p>Noch keine Merges durchgeführt.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allEntries = [];
+let currentFilter = 'all';
+let refreshTimer = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadHistory();
+    refreshTimer = setInterval(loadHistory, 30000);
+});
+
+function setFilter(f) {
+    currentFilter = f;
+    document.querySelectorAll('#btnAll, #btnDone, #btnFailed').forEach(b => b.classList.remove('btn-primary'));
+    document.getElementById('btn' + (f === 'all' ? 'All' : f === 'done' ? 'Done' : 'Failed')).classList.add('btn-primary');
+    renderTable();
+}
+
+function escHtml(str) {
+    if (str == null) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escAttr(str) {
+    if (str == null) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function timeAgo(isoStr) {
+    if (!isoStr) return '';
+    const then = new Date(isoStr + (isoStr.endsWith('Z') ? '' : 'Z'));
+    const now = new Date();
+    const diff = Math.floor((now - then) / 1000);
+    if (diff < 60) return 'vor ' + diff + 's';
+    if (diff < 3600) return 'vor ' + Math.floor(diff / 60) + ' Min';
+    if (diff < 86400) return 'vor ' + Math.floor(diff / 3600) + ' Std';
+    return 'vor ' + Math.floor(diff / 86400) + ' Tagen';
+}
+
+function statusBadge(status, reason) {
+    const map = {
+        done: '<span class="badge badge-success">Merged</span>',
+        failed: '<span class="badge badge-error" title="' + escAttr(reason || '') + '">Failed</span>',
+        skipped: '<span class="badge" style="background:var(--text-muted);color:#111;">Skipped</span>'
+    };
+    return map[status] || '<span class="badge">' + escHtml(status) + '</span>';
+}
+
+function renderTable() {
+    const tbody = document.getElementById('historyTbody');
+    const empty = document.getElementById('emptyState');
+    let filtered = allEntries;
+    if (currentFilter !== 'all') {
+        filtered = allEntries.filter(e => e.status === currentFilter);
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '';
+        empty.classList.remove('hidden');
+    } else {
+        empty.classList.add('hidden');
+        tbody.innerHTML = filtered.map(e => {
+            const dur = e.duration_ms != null ? (e.duration_ms / 1000).toFixed(1) + 's' : '-';
+            const files = (e.output_files && e.output_files.length > 0)
+                ? e.output_files.map(p => escHtml(p.split('/').pop())).join(', ')
+                : '-';
+            return '<tr>' +
+                '<td>' + statusBadge(e.status, e.reason) + '</td>' +
+                '<td><span title="' + escAttr(e.video_path) + '">' + escHtml(e.video_name) + '</span></td>' +
+                '<td>' + dur + '</td>' +
+                '<td>' + files + '</td>' +
+                '<td><span title="' + escAttr(e.updated_at || e.created_at || '') + '">' + timeAgo(e.updated_at || e.created_at) + '</span></td>' +
+                '</tr>';
+        }).join('');
+    }
+}
+
+async function loadHistory() {
+    try {
+        const resp = await fetch('/api/history');
+        const data = await resp.json();
+        if (data.entries) {
+            allEntries = data.entries;
+            renderTable();
+        }
+    } catch (e) {
+        showStatus('Fehler beim Laden des Verlaufs: ' + e.message, 'error');
+    }
+}
+
+async function clearHistory() {
+    if (!confirm('Gesamten Merge-Verlauf löschen? Dies kann nicht rückgängig gemacht werden.')) return;
+    try {
+        const resp = await fetch('/api/history/clear', { method: 'POST' });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            allEntries = [];
+            renderTable();
+            showStatus('Verlauf gelöscht (' + data.removed + ' Einträge entfernt)', 'success');
+        } else {
+            showStatus('Fehler: ' + (data.message || 'unknown'), 'error');
+        }
+    } catch (e) {
+        showStatus('Fehler beim Löschen: ' + e.message, 'error');
+    }
+}
+
+function showStatus(msg, type) {
+    const el = document.getElementById('statusMsg');
+    el.className = 'status-msg status-' + type;
+    if (el._hideTimer) clearTimeout(el._hideTimer);
+    if (type === 'error') {
+        el.innerHTML = '<span class="status-text">' + escHtml(msg) + '</span>' +
+            '<button class="status-close" onclick="document.getElementById(\'statusMsg\').classList.add(\'hidden\')" title="Dismiss">&times;</button>';
+    } else {
+        el.textContent = msg;
+    }
+    el.classList.remove('hidden');
+    const timeout = type === 'error' ? 20000 : 5000;
+    el._hideTimer = setTimeout(() => el.classList.add('hidden'), timeout);
+}
+</script>
+{% endblock %}

@@ -119,6 +119,8 @@ body {
 /* Badge */
 .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
 .badge-ok { background: var(--success); color: #fff; }
+.badge-success { background: var(--success); color: #fff; }
+.badge-error { background: var(--error); color: #fff; }
 
 /* Status Messages */
 .status-msg {
@@ -193,6 +195,14 @@ body {
 }
 
 .media-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 48px 16px;
+    color: var(--text-muted);
+    font-size: 1.05rem;
+}
 
 .status-col { text-align: center; width: 50px; }
 .actions-col { white-space: nowrap; min-width: 150px; }

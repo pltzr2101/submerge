@@ -1084,6 +1084,44 @@ async def api_queue_retry(entry_id: int):
     return {"status": "merged", "files": [str(f) for f in created]}
 
 
+@app.get("/api/history")
+def api_history(limit: int = 200):
+    """Return completed merge history entries, newest first."""
+    from .queue import get_history
+
+    settings = _get_effective_settings()
+    try:
+        entries = get_history(limit=limit, settings=settings)
+        return JSONResponse({"entries": entries, "count": len(entries)})
+    except Exception as e:
+        logger.error(f"History fetch error: {e}")
+        raise HTTPException(
+            status_code=500, detail={"status": "error", "message": str(e)}
+        ) from e
+
+
+@app.post("/api/history/clear")
+def api_history_clear():
+    """Delete all completed (done/failed) entries from the queue table."""
+    from .queue import clear_history
+
+    settings = _get_effective_settings()
+    try:
+        count = clear_history(settings=settings)
+        logger.info(f"History cleared: {count} entries removed")
+        return {"status": "ok", "removed": count}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail={"status": "error", "message": str(e)}
+        ) from e
+
+
+@app.get("/history", response_class=HTMLResponse)
+async def ui_history(request: Request):
+    """Merge history page."""
+    return templates.TemplateResponse(request, "history.html", {})
+
+
 @app.post("/api/settings")
 async def api_settings(request: Request):
     """Apply runtime settings (in-memory only, not persisted)."""

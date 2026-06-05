@@ -195,6 +195,8 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `GET` | `/api/queue` | List all pending queue entries |
 | `POST` | `/api/queue/{id}/retry` | Retry a specific queue entry now |
 | `POST` | `/api/queue/{id}/remove` | Remove a queue entry |
+| `GET` | `/api/history` | List completed merge history (done + failed), newest first. Query: `?limit=200` |
+| `POST` | `/api/history/clear` | Delete all completed entries from history |
 
 ### Style Presets
 
@@ -223,6 +225,7 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `GET` | `/` | Web UI Dashboard |
 | `GET` | `/styles` | Style Editor page |
 | `GET` | `/settings` | Settings page |
+| `GET` | `/history` | Merge history page |
 | `GET` | `/logs/stream` | SSE live log stream |
 | `POST` | `/api/settings` | Update runtime settings (in-memory, not persisted) |
 
@@ -233,6 +236,7 @@ Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282`:
 | Page | Description |
 |------|-------------|
 | **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), per-video merge/sync buttons, batch "merge all missing", search/filter, polling status badge |
+| **History** (`/history`) | Merge history table showing all past merge operations with status badges, duration, output files, and timestamps. Client-side filtering by status (all / merged / failed), auto-refresh every 30 s, clear-button |
 | **Settings** (`/settings`) | Override `SUBTOOLS_*` environment variables at runtime. **In-memory only — changes are lost on container restart.** To persist style changes permanently: save as a Preset in the Style Editor, then set it as the Default Template via `POST /api/settings/default-template` or the Style Editor UI. |
 | **Style Editor** (`/styles`) | Two-tab editor (Bottom/Top) with color pickers, font size, outline/shadow controls, CJK font selector, canvas preview, preset save/load, ASS export button |
 

@@ -11,7 +11,9 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -80,6 +82,13 @@ def init_db(settings: SubtoolsSettings | None = None) -> None:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_status ON pending_merges(status)
         """)
+        # Migration: add duration_ms and output_files columns if they don't exist
+        for col, col_type in [
+            ("duration_ms", "INTEGER DEFAULT NULL"),
+            ("output_files", "TEXT DEFAULT NULL"),
+        ]:
+            with suppress(sqlite3.OperationalError):
+                conn.execute(f"ALTER TABLE pending_merges ADD COLUMN {col} {col_type}")
         conn.commit()
     finally:
         conn.close()
@@ -145,6 +154,8 @@ def dequeue(
     video_path: str | Path,
     status: Literal["done", "failed"] = "done",
     error_msg: str | None = None,
+    duration_ms: int | None = None,
+    output_files: list[str] | None = None,
     settings: SubtoolsSettings | None = None,
 ) -> None:
     """Mark a queue entry as done or failed.
@@ -153,6 +164,8 @@ def dequeue(
         video_path: Path to the video file
         status: "done" or "failed"
         error_msg: Error message if status is "failed"
+        duration_ms: Total merge time in milliseconds
+        output_files: JSON-encodable list of created output file paths
         settings: Configuration for DB path
     """
     video_path = str(Path(video_path).resolve())
@@ -160,9 +173,11 @@ def dequeue(
     if conn is None:
         return
     try:
+        output_json = json.dumps(output_files) if output_files is not None else None
         conn.execute(
-            "UPDATE pending_merges SET status = ?, error_msg = ? WHERE video_path = ?",
-            (status, error_msg, video_path),
+            "UPDATE pending_merges SET status = ?, error_msg = ?,"
+            " duration_ms = ?, output_files = ? WHERE video_path = ?",
+            (status, error_msg, duration_ms, output_json, video_path),
         )
         conn.commit()
         logger.debug(f"Queue entry {status}: {Path(video_path).name}")
@@ -237,7 +252,8 @@ def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, 
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """SELECT id, video_path, langs_present, langs_missing,
-                      first_seen, last_checked, attempt_count, status, error_msg
+                      first_seen, last_checked, attempt_count, status, error_msg,
+                      duration_ms, output_files
                FROM pending_merges ORDER BY first_seen DESC LIMIT 500"""
         ).fetchall()
         return [
@@ -252,6 +268,8 @@ def get_all_entries(settings: SubtoolsSettings | None = None) -> list[dict[str, 
                 "attempt_count": row["attempt_count"],
                 "status": row["status"],
                 "error_msg": row["error_msg"],
+                "duration_ms": row["duration_ms"],
+                "output_files": json.loads(row["output_files"]) if row["output_files"] else None,
             }
             for row in rows
         ]
@@ -335,10 +353,19 @@ def process_queue(
                 merged += 1
                 continue
 
-            merge_fn(video_path, sub_paths, settings)
-            dequeue(video_path, "done", settings=settings)
+            t0 = time.monotonic()
+            created = merge_fn(video_path, sub_paths, settings)
+            duration_ms = round((time.monotonic() - t0) * 1000)
+            created_paths = [str(p) for p in created] if created else []
+            dequeue(
+                video_path,
+                "done",
+                duration_ms=duration_ms,
+                output_files=created_paths,
+                settings=settings,
+            )
             merged += 1
-            logger.info(f"Queue merge complete: {video_path.name}")
+            logger.info(f"Queue merge complete: {video_path.name} ({duration_ms}ms)")
         except Exception as e:
             logger.error(f"Queue merge error for {video_path.name}: {e}")
             if entry.attempt_count > 10:
@@ -354,6 +381,67 @@ def process_queue(
         "failed": failed,
         "still_pending": still_pending,
     }
+
+
+def get_history(
+    limit: int = 200,
+    settings: SubtoolsSettings | None = None,
+) -> list[dict[str, Any]]:
+    """Return the last `limit` completed queue entries (done + failed), newest first.
+
+    Each entry dict contains:
+        id, video_path, video_name (basename), status, reason (error_msg),
+        duration_ms, output_files (list[str]), created_at (first_seen),
+        updated_at (last_checked)
+    """
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return []
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT id, video_path, first_seen, last_checked,
+                      status, error_msg, duration_ms, output_files
+               FROM pending_merges
+               WHERE status IN ('done', 'failed')
+               ORDER BY last_checked DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "video_path": row["video_path"],
+                "video_name": Path(row["video_path"]).name,
+                "status": row["status"],
+                "reason": row["error_msg"],
+                "duration_ms": row["duration_ms"],
+                "output_files": json.loads(row["output_files"]) if row["output_files"] else [],
+                "created_at": row["first_seen"],
+                "updated_at": row["last_checked"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def clear_history(settings: SubtoolsSettings | None = None) -> int:
+    """Delete all completed (done/failed) entries from the queue table.
+
+    Returns the number of rows removed.
+    """
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return 0
+    try:
+        cursor = conn.execute(
+            "DELETE FROM pending_merges WHERE status IN ('done', 'failed')"
+        )
+        conn.commit()
+        return cursor.rowcount
+    finally:
+        conn.close()
 
 
 # Background worker management
