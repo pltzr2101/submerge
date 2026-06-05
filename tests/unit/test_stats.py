@@ -2,12 +2,30 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from submerge.config import get_settings_for_test
-from submerge.queue import dequeue, enqueue, get_stats, init_db
+from submerge.queue import _get_connection, dequeue, enqueue, get_stats, init_db
+
+
+def _insert_naive_pending_entry(media_dir: str, settings):
+    """Insert a pending entry with a timezone-naive first_seen string into the DB.
+
+    This simulates the scenario on Python 3.10 where fromisoformat may return
+    a naive datetime for some input formats.
+    """
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return
+    try:
+        now_naive = "2026-06-04T12:00:00"
+        conn.execute(
+            """INSERT INTO pending_merges
+               (video_path, langs_present, langs_missing, first_seen, last_checked, status)
+               VALUES (?, '[]', '[]', ?, ?, 'pending')""",
+            (f"{media_dir}/naive.mkv", now_naive, now_naive),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 class TestGetStats:
@@ -91,6 +109,17 @@ class TestGetStats:
         assert stats["total_pending"] == 1
         assert stats["oldest_pending_hours"] is not None
         assert stats["oldest_pending_hours"] >= 0
+
+    def test_naive_first_seen_handled(self, tmp_path):
+        """Timezone-naive first_seen in DB does not crash get_stats."""
+        s, media = self._make_settings(tmp_path)
+        _insert_naive_pending_entry(str(media), s)
+
+        stats = get_stats(settings=s)
+        assert stats["total_pending"] == 1
+        # Should compute oldest_pending_hours without error
+        assert stats["oldest_pending_hours"] is not None
+        assert stats["oldest_pending_hours"] > 0
 
 
 class TestStatsApi:

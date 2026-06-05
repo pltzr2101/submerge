@@ -6,8 +6,6 @@ import io
 import zipfile
 from pathlib import Path
 
-import pytest
-
 from submerge.config import get_settings_for_test
 from submerge.queue import (
     dequeue,
@@ -117,8 +115,12 @@ class TestHistoryExportApi:
         # Create fixture .ass files
         ass1 = media / "test.de-ko.ass"
         ass2 = media / "test.en-de.ass"
-        ass1.write_text("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")
-        ass2.write_text("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")
+        ASS_HEADER = (
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+        )
+        ass1.write_text(ASS_HEADER)
+        ass2.write_text(ASS_HEADER)
 
         enqueue(v, settings)
         dequeue(

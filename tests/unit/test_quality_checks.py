@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pysubs2
 import pytest
 
-from submerge.config import get_settings_for_test
 from submerge.merge import (
     InvalidSubtitleError,
     MergeConfig,

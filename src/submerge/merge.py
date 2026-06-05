@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import copy
 import logging
 import re
@@ -157,12 +158,24 @@ def run_quality_checks(
         )
 
     # --- Check C: LOW_COVERAGE ---
+    # Optimised with bisect: O((n+m) log m) instead of O(n*m).
+
+    sorted_top = sorted(top_events, key=lambda e: e.start)
+    top_starts = [te.start for te in sorted_top]
     covered = 0
+
     for be in bottom_events:
-        for te in top_events:
-            if te.start < be.end and te.end > be.start:
-                covered += 1
+        # Find first top event whose start >= be.end — all earlier
+        # events (indices < idx_end) start before be.end and are
+        # therefore potential overlaps.
+        idx_end = bisect.bisect_left(top_starts, be.end)
+        found = False
+        for i in range(idx_end - 1, -1, -1):
+            if sorted_top[i].end > be.start:
+                found = True
                 break
+        if found:
+            covered += 1
     coverage = covered / max(len(bottom_events), 1)
     if coverage < 0.55:
         warnings.append(

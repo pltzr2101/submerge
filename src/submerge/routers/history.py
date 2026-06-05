@@ -56,7 +56,10 @@ def api_history_export(ids: str = ""):
     if not ids or not ids.strip():
         raise HTTPException(
             status_code=400,
-            detail={"status": "error", "message": "ids parameter required (comma-separated integers)"},
+            detail={
+                "status": "error",
+                "message": "ids parameter required (comma-separated integers)",
+            },
         )
 
     try:
@@ -85,13 +88,15 @@ def api_history_export(ids: str = ""):
     # Collect files, validate paths, skip invalid
     zip_files: list[tuple[str, Path]] = []
     seen_names: dict[str, int] = {}
-    for idx, entry in enumerate(entries):
+    for _idx, entry in enumerate(entries):
         for file_path_str in entry.get("output_files", []):
             try:
                 file_path = validate_path(file_path_str, "output_file", check_media_root=True)
             except HTTPException:
                 logger.warning(
-                    f"Export: skipping file outside media root for entry {entry['id']}: {file_path_str}"
+                    "Export: skipping file outside media root for entry %d: %s",
+                    entry["id"],
+                    file_path_str,
                 )
                 continue
             if not file_path.exists():

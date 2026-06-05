@@ -544,6 +544,9 @@ def get_history_entries_by_ids(
 ) -> list[dict]:
     """Load history entries with given IDs that have status 'done'.
 
+    Uses parameterized queries (SQLite ``?`` placeholders) — no user-provided
+    values are interpolated into the SQL string, preventing injection.
+
     Returns a list of dicts with 'output_files' parsed from JSON strings.
 
     Args:
@@ -601,10 +604,11 @@ def get_stats(settings: SubtoolsSettings | None = None) -> dict[str, Any]:
         try:
             row = conn.execute(
                 """SELECT
-                    COALESCE(SUM(CASE WHEN status='done' THEN 1 ELSE 0 END), 0) AS merged,
-                    COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) AS failed,
-                    COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END), 0) AS pending,
-                    COALESCE(AVG(CASE WHEN status IN ('done','failed') THEN attempt_count END), 0.0) AS avg_r
+                    COALESCE(SUM(CASE WHEN status='done' THEN 1 ELSE 0 END), 0) AS m,
+                    COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) AS f,
+                    COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END), 0) AS p,
+                    COALESCE(AVG(CASE WHEN status IN ('done','failed')
+                        THEN attempt_count END), 0.0) AS avg_r
                 FROM pending_merges"""
             ).fetchone()
 
@@ -624,6 +628,10 @@ def get_stats(settings: SubtoolsSettings | None = None) -> dict[str, Any]:
                 if oldest_row and oldest_row[0]:
                     try:
                         first_seen = datetime.fromisoformat(oldest_row[0])
+                        # Robustness: if fromisoformat returns naive datetime
+                        # (Python 3.10 on timezone-naive stored strings), set UTC.
+                        if first_seen.tzinfo is None:
+                            first_seen = first_seen.replace(tzinfo=timezone.utc)
                         oldest_hours = round(
                             (datetime.now(timezone.utc) - first_seen).total_seconds() / 3600, 1
                         )

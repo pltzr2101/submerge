@@ -8,6 +8,7 @@ import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pysubs2
 from filelock import FileLock, Timeout
