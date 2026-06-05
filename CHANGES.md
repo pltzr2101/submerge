@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-06-05
+
+### Added
+
+- Favicon (ICO + PNG) for browser tab
+- Detailed error messages in merge status banner with manual dismiss button
+- Per-file error reasons in batch re-merge UI
+
+### Fixed
+
+- SSE logs from `run_in_executor` threads now visible in web UI via cached
+  main event loop and `call_soon_threadsafe`
+- EUC-KR / CP949 encoding fallback for Korean subtitle files that fail UTF-8
+  and `charset-normalizer` auto-detection
+
+### Changed
+
+- Favicon optimized from 708 KB to 1.2 KB (favicon.ico: 1.9 KB)
+- `showStatus()` auto-hides errors after 20 s instead of 5 s
+- `.gitattributes` marks binary fixture and asset files to prevent Git
+  conversion
+
+### Internal
+
+- Encoding test fixtures are programmatically generated as true binary files
+  (not UTF-8) with `_assert_not_utf8` sanity guards
+- `scripts/optimize_favicon.py` dev tool for reproducible favicon generation
+
 ## [2.1.0] - 2026-06-02
 
 ### Changed
@@ -97,6 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FastAPI app uses `lifespan` context manager instead of deprecated `@app.on_event`
 - `/health` response now returns `configured` and `pairs` fields
 
+[2.2.0]: https://github.com/pltzr2101/submerge/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/pltzr2101/submerge/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/pltzr2101/submerge/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/pltzr2101/submerge/compare/v2.0.1...v2.0.2
