@@ -26,6 +26,9 @@ Automatic bilingual subtitle merge service for ARR stacks. Combines two single-l
 - **Bazarr & Lingarr webhook integration** with polling fallback when subtitles are still downloading/translating
 - **Web UI**: media overview dashboard, manual merge/sync buttons, queue management, live SSE log stream
 - **Style presets** — 3 built-in (Standard, Cinema Dark, Bright) + create and save your own via the UI
+- **Post-merge quality checks** — automatic detection of overlapping tracks, line count imbalances, low coverage, and empty tracks
+- **Statistics dashboard** — merge success rate, pending/failed counts, average retries on the home page
+- **Batch export** — download output files from multiple history entries as a ZIP archive
 - **Basic Auth + rate limiting** for Web UI protection
 - **ffsubsync integration** for subtitle synchronization (sub-to-sub or audio-based)
 - **Docker** — single-container deployment with healthcheck
@@ -197,6 +200,8 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `POST` | `/api/queue/{id}/remove` | Remove a queue entry |
 | `GET` | `/api/history` | List completed merge history (done + failed), newest first. Query: `?limit=200` |
 | `POST` | `/api/history/clear` | Delete all completed entries from history |
+| `GET` | `/api/history/export` | Download output files for given entry IDs as ZIP. Query: `?ids=1,2,3` (max 50) |
+| `GET` | `/api/stats` | Aggregate merge statistics (merged, failed, pending, success rate, avg retries) |
 
 ### Style Presets
 

@@ -8,6 +8,7 @@
         <button class="btn btn-sm" id="btnAll" data-filter="all" onclick="setFilter('all')">Alle</button>
         <button class="btn btn-sm btn-success" id="btnDone" data-filter="done" onclick="setFilter('done')">Merged</button>
         <button class="btn btn-sm btn-danger" id="btnFailed" data-filter="failed" onclick="setFilter('failed')">Fehlgeschlagen</button>
+        <button class="btn btn-sm btn-primary" id="btnExportSelected" onclick="exportSelected()" disabled>Export Selected (.zip)</button>
         <button class="btn btn-sm btn-danger" onclick="clearHistory()" style="margin-left:auto;">Verlauf löschen</button>
     </div>
 </div>
@@ -17,6 +18,7 @@
 <table class="media-table" id="historyTable">
     <thead>
         <tr>
+            <th><input type="checkbox" id="chkHistAll" onchange="toggleHistAll(this)"></th>
             <th>Status</th>
             <th>Video</th>
             <th>Dauer</th>
@@ -25,7 +27,7 @@
         </tr>
     </thead>
     <tbody id="historyTbody">
-        <tr><td colspan="5" class="loading-cell">Loading...</td></tr>
+        <tr><td colspan="6" class="loading-cell">Loading...</td></tr>
     </tbody>
 </table>
 
@@ -100,7 +102,9 @@ function renderTable() {
             const files = (e.output_files && e.output_files.length > 0)
                 ? e.output_files.map(p => escHtml(p.split('/').pop())).join(', ')
                 : '-';
+            const disabled = e.status !== 'done' ? ' disabled' : '';
             return '<tr>' +
+                '<td><input type="checkbox" class="hist-chk" data-id="' + e.id + '" onchange="updateExportBtn()"' + disabled + '></td>' +
                 '<td>' + statusBadge(e.status, e.reason) + '</td>' +
                 '<td><span title="' + escAttr(e.video_path) + '">' + escHtml(e.video_name) + '</span></td>' +
                 '<td>' + dur + '</td>' +
@@ -154,6 +158,22 @@ function showStatus(msg, type) {
     el.classList.remove('hidden');
     const timeout = type === 'error' ? 20000 : 5000;
     el._hideTimer = setTimeout(() => el.classList.add('hidden'), timeout);
+}
+
+function toggleHistAll(cb) {
+    document.querySelectorAll('.hist-chk:not([disabled])').forEach(chk => { chk.checked = cb.checked; });
+    updateExportBtn();
+}
+
+function updateExportBtn() {
+    const checked = document.querySelectorAll('.hist-chk:checked');
+    document.getElementById('btnExportSelected').disabled = checked.length === 0;
+}
+
+function exportSelected() {
+    const ids = Array.from(document.querySelectorAll('.hist-chk:checked')).map(cb => cb.dataset.id);
+    if (ids.length === 0) return;
+    window.location.href = '/api/history/export?ids=' + ids.join(',');
 }
 </script>
 {% endblock %}

@@ -24,7 +24,7 @@ def _ms_to_str(ms: int) -> str:
 
 
 @router.get("/api/subtitle-preview")
-def api_subtitle_preview(path: str, limit: int = 20):
+def api_subtitle_preview(path: str, limit: int = 50):
     """Return first `limit` cues of a subtitle file as JSON."""
     sub_path = validate_path(path, "path", check_media_root=True)
     if not sub_path.exists():

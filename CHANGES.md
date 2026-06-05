@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-06-05
+
+### Added
+
+- **Post-merge quality checks** (`run_quality_checks` in `merge.py`):
+  OVERLAP_BOTTOM, SUSPICIOUS_RATIO, LOW_COVERAGE, and EMPTY_TRACK checks
+  run automatically after each merge. Warnings are returned via
+  `/api/merge` response as `quality_warnings` and logged.
+- **Batch export endpoint** (`GET /api/history/export?ids=1,2,3`):
+  Download output files from completed merge entries as a ZIP archive.
+  UI integration in history page with checkboxes and "Export Selected" button.
+- **Statistics endpoint** (`GET /api/stats`): Returns aggregate merge
+  statistics (merged, failed, pending counts, success rate, avg retries,
+  oldest pending age). Dashboard widget on the home page.
+- **Larger subtitle preview** — increased from 20 to 50 lines with
+  improved modal scrolling (85vh max-height).
+
+### Changed
+
+- `merge_bilingual()` now returns `tuple[Path, list[QualityWarning]]`
+  instead of `Path`. All callers updated (CLI, hook, queue worker,
+  merge API, scanner).
+- `process_bilingual_merge()` now returns `tuple[list[Path], list[QualityWarning]]`
+  instead of `list[Path]`.
+
+### Internal
+
+- `get_history_entries_by_ids()` added to `queue.py` for batch export support.
+- `get_stats()` added to `queue.py` for aggregate statistics.
+- Stats router (`routers/stats.py`) registered in `api.py`.
+- CSS for stats dashboard widget cards (`.stats-section`, `.stat-card`, etc.).
+
 ## [2.2.0] - 2026-06-05
 
 ### Added

@@ -83,7 +83,7 @@ async def api_merge(request: Request):
 
         loop = asyncio.get_running_loop()
         t0 = time.monotonic()
-        created_files = await loop.run_in_executor(
+        created_files, quality_warnings = await loop.run_in_executor(
             None,
             lambda: process_bilingual_merge(video_path, sub_paths, merge_settings),
         )
@@ -100,6 +100,10 @@ async def api_merge(request: Request):
             "status": "merged",
             "overwrite": overwrite,
             "files": [str(f) for f in created_files],
+            "quality_warnings": [
+                {"code": w.code, "message": w.message, "severity": w.severity}
+                for w in quality_warnings
+            ],
         }
 
     except HTTPException:
@@ -143,7 +147,7 @@ def _merge_one_video(
             return {"video": video_path.name, "status": "skipped", "reason": "already_exists"}
 
         t0 = time.monotonic()
-        created_files = process_bilingual_merge(video_path, sub_paths, merge_settings)
+        created_files, _ = process_bilingual_merge(video_path, sub_paths, merge_settings)
         duration_ms = round((time.monotonic() - t0) * 1000)
         enqueue(video_path, merge_settings)
         dequeue(

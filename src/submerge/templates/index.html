@@ -71,7 +71,7 @@
 
 <!-- Subtitle Preview Modal -->
 <div id="previewModal" class="modal-overlay hidden" onclick="if(event.target===this)document.getElementById('previewModal').classList.add('hidden')">
-  <div class="modal" style="max-width:700px;max-height:80vh;display:flex;flex-direction:column">
+  <div class="modal" style="max-width:700px;max-height:85vh;display:flex;flex-direction:column">
     <div class="modal-header">
       <h3 id="previewModalTitle">Subtitle Preview</h3>
       <button class="modal-close" onclick="document.getElementById('previewModal').classList.add('hidden')">&times;</button>
@@ -95,6 +95,17 @@
             <button id="btnDeleteConfirm" class="btn btn-danger">Delete</button>
             <button class="btn" onclick="closeDeleteModal()">Cancel</button>
         </div>
+    </div>
+</div>
+
+<div class="stats-section">
+    <h2>Merge Statistics</h2>
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-value" id="statMerged">—</div><div class="stat-label">Merged</div></div>
+        <div class="stat-card"><div class="stat-value" id="statFailed">—</div><div class="stat-label">Failed</div></div>
+        <div class="stat-card"><div class="stat-value" id="statRate">—</div><div class="stat-label">Success Rate</div></div>
+        <div class="stat-card"><div class="stat-value" id="statPending">—</div><div class="stat-label">Pending</div></div>
+        <div class="stat-card"><div class="stat-value" id="statRetries">—</div><div class="stat-label">Avg. Retries</div></div>
     </div>
 </div>
 
@@ -151,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTemplates();
     loadDefaultTemplate();
     connectLogStream();
+    loadStats();
 });
 
 async function loadTemplates() {
@@ -340,7 +352,7 @@ function closeDeleteModal() {
 
 async function showSubtitlePreview(assPath) {
     try {
-        const resp = await fetch('/api/subtitle-preview?path=' + encodeURIComponent(assPath) + '&limit=20');
+        const resp = await fetch('/api/subtitle-preview?path=' + encodeURIComponent(assPath) + '&limit=50');
         if (!resp.ok) { showStatus('Preview nicht verf\u00fcgbar', 'error'); return; }
         const data = await resp.json();
         const rows = data.preview.map(c =>
@@ -642,6 +654,23 @@ function connectLogStream() {
         entry.textContent = 'Log stream disconnected. Retrying...';
         viewer.appendChild(entry);
     };
+}
+
+async function loadStats() {
+    try {
+        const resp = await fetch('/api/stats');
+        const data = await resp.json();
+        document.getElementById('statMerged').textContent = data.total_merged ?? '—';
+        document.getElementById('statFailed').textContent = data.total_failed ?? '—';
+        const rate = data.success_rate != null ? data.success_rate : 0;
+        document.getElementById('statRate').textContent = Math.round(rate * 100) + '%';
+        document.getElementById('statPending').textContent = data.total_pending ?? '—';
+        document.getElementById('statRetries').textContent = data.avg_retries != null ? data.avg_retries.toFixed(1) : '—';
+    } catch (e) {
+        ['statMerged', 'statFailed', 'statRate', 'statPending', 'statRetries'].forEach(id => {
+            document.getElementById(id).textContent = 'N/A';
+        });
+    }
 }
 
 function escHtml(str) {

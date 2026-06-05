@@ -921,6 +921,7 @@ from .routers.scanner import _run_scan  # noqa: E402
 from .routers.scanner import router as _scanner_router  # noqa: E402
 from .routers.schedule import router as _schedule_router  # noqa: E402
 from .routers.settings import router as _settings_router  # noqa: E402
+from .routers.stats import router as _stats_router  # noqa: E402
 
 app.include_router(_history_router)
 app.include_router(_merge_router)
@@ -930,6 +931,7 @@ app.include_router(_queue_router)
 app.include_router(_scanner_router)
 app.include_router(_schedule_router)
 app.include_router(_settings_router)
+app.include_router(_stats_router)
 
 # Re-export symbols moved to routers (backward-compat for tests)
 from .routers.queue import api_queue_retry  # noqa: E402, F401

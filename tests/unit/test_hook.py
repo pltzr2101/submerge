@@ -262,7 +262,7 @@ class TestProcessHook:
 
         fr_pl = tmp_path / "Show.fr-pl.ass"
         en_pl = tmp_path / "Show.en-pl.ass"
-        mock_merge.return_value = [fr_pl, en_pl]
+        mock_merge.return_value = ([fr_pl, en_pl], [])
 
         result = process_hook(video, fr, "fr", settings_fr_pl_en)
 
@@ -309,6 +309,7 @@ class TestMergeConfigExpanded:
 
         mv = __import__("submerge.hook", fromlist=["merge_bilingual"])
         with patch.object(mv, "merge_bilingual") as mock_merge:  # noqa: F841
+            mock_merge.return_value = (None, [])
             process_bilingual_merge(video, {"de": de_sub, "ko": ko_sub}, settings)
 
             assert mock_merge.called
@@ -347,6 +348,7 @@ class TestMergeConfigExpanded:
 
         mv = __import__("submerge.hook", fromlist=["merge_bilingual"])
         with patch.object(mv, "merge_bilingual") as mock_merge:  # noqa: F841
+            mock_merge.return_value = (None, [])
             process_bilingual_merge(video, {"de": de_sub, "ko": ko_sub}, settings)
             assert mock_merge.called
             config = mock_merge.call_args[0][3]
@@ -380,6 +382,7 @@ class TestPollingQueueInteraction:
 
         mv = __import__("submerge.hook", fromlist=["merge_bilingual"])
         with patch.object(mv, "merge_bilingual") as mock_merge:  # noqa: F841
+            mock_merge.return_value = (None, [])
             process_bilingual_merge(video, {"de": de_sub, "ko": ko_sub}, settings)
             dequeue(video, "done", settings=settings)
 

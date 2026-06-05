@@ -317,9 +317,13 @@ def merge_cmd(
 
     try:
         with console.status("Creating bilingual file..."):
-            merge_bilingual(sub1, sub2, output, config)
+            output_path, warnings = merge_bilingual(sub1, sub2, output, config)
         console.print("[green]✓[/green] Bilingual file created")
-        console.print(f"\n[green]✓[/green] File created: [bold]{output}[/bold]")
+        console.print(f"\n[green]✓[/green] File created: [bold]{output_path}[/bold]")
+        if warnings:
+            for w in warnings:
+                style = "red" if w.severity == "error" else "yellow"
+                console.print(f"[{style}][{w.code}][/{style}] {w.message}")
 
     except InvalidSubtitleError as e:
         console.print(f"\n[red]Subtitle error:[/red] {e}")

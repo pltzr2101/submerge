@@ -79,6 +79,6 @@ async def api_queue_retry(entry_id: int):
     if should_skip_existing(video_path, sub_paths, settings):
         dequeue(video_path, "done", settings=settings)
         return {"status": "skipped", "reason": "already_exists"}
-    created = await run_in_threadpool(process_bilingual_merge, video_path, sub_paths, settings)
+    created, _ = await run_in_threadpool(process_bilingual_merge, video_path, sub_paths, settings)
     dequeue(video_path, "done", settings=settings)
     return {"status": "merged", "files": [str(f) for f in created]}

@@ -460,3 +460,34 @@ legend {
 .schedule-ok { color: var(--success); }
 .schedule-error { color: var(--error); }
 
+/* Stats section */
+.stats-section { margin-bottom: 24px; }
+.stats-section h2 { font-size: 1.1rem; margin-bottom: 12px; }
+
+.stats-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    min-width: 120px;
+    flex: 1;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+

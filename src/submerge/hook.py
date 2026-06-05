@@ -424,7 +424,7 @@ def _polling_worker(
                                     " outputs up-to-date (post-lock check)"
                                 )
                                 return
-                            created_files = process_bilingual_merge(
+                            created_files, _ = process_bilingual_merge(
                                 video_path, sub_paths, current_settings
                             )
                     except Timeout:
@@ -505,7 +505,7 @@ def process_bilingual_merge(
     video_path: Path,
     sub_paths: dict[str, Path],
     settings: SubtoolsSettings | None = None,
-) -> list[Path]:
+) -> tuple[list[Path], list[Any]]:
     """Generate bilingual files for all configured pairs.
 
     Note: Subtitles are assumed already synchronized (Bazarr does sync).
@@ -516,13 +516,16 @@ def process_bilingual_merge(
         settings: Settings to get pairs and styles
 
     Returns:
-        List of created .ass files
+        Tuple of (list of created .ass files, list of QualityWarning)
 
     Raises:
         ProcessingError: If processing fails
     """
+    from .merge import QualityWarning
+
     settings = settings or get_settings()
     created_files: list[Path] = []
+    all_warnings: list[QualityWarning] = []
 
     merge_config = MergeConfig(
         color_bottom=settings.bottom_color,
@@ -569,7 +572,8 @@ def process_bilingual_merge(
             sub2_path = sub_paths[lang_top]
 
             logger.info(f"Merging {lang_bottom}-{lang_top}...")
-            merge_bilingual(sub1_path, sub2_path, output_path, merge_config)
+            _, pair_warnings = merge_bilingual(sub1_path, sub2_path, output_path, merge_config)
+            all_warnings.extend(pair_warnings)
             created_files.append(output_path)
             logger.info(f"Created: {output_path}")
 
@@ -595,7 +599,7 @@ def process_bilingual_merge(
         settings=settings,
         tags=["white_check_mark", "submerge"],
     )
-    return created_files
+    return created_files, all_warnings
 
 
 def process_hook(
@@ -675,7 +679,7 @@ def process_hook(
             dequeue(video_path, "done", settings=settings)
 
             # Process (no sync - Bazarr already did it)
-            created_files = process_bilingual_merge(video_path, sub_paths, settings)
+            created_files, _ = process_bilingual_merge(video_path, sub_paths, settings)
 
             return HookResult(
                 status="merged",

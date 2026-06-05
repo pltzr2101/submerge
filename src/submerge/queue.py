@@ -437,7 +437,7 @@ def process_queue(
                 continue
 
             t0 = time.monotonic()
-            created = merge_fn(video_path, sub_paths, settings)
+            created, _w = merge_fn(video_path, sub_paths, settings)
             duration_ms = round((time.monotonic() - t0) * 1000)
             created_paths = [str(p) for p in created] if created else []
             dequeue(
@@ -536,6 +536,115 @@ def clear_history(settings: SubtoolsSettings | None = None) -> int:
         return cursor.rowcount
     finally:
         conn.close()
+
+
+def get_history_entries_by_ids(
+    ids: list[int],
+    settings: SubtoolsSettings | None = None,
+) -> list[dict]:
+    """Load history entries with given IDs that have status 'done'.
+
+    Returns a list of dicts with 'output_files' parsed from JSON strings.
+
+    Args:
+        ids: List of entry IDs to fetch.
+        settings: Configuration for DB path.
+
+    Returns:
+        List of dicts with 'id', 'video_path', 'output_files' (parsed as list[str]).
+    """
+    if not ids:
+        return []
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return []
+    try:
+        placeholders = ",".join("?" for _ in ids)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"""SELECT id, video_path, output_files
+                FROM pending_merges
+                WHERE id IN ({placeholders}) AND status = 'done'""",
+            ids,
+        ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "video_path": row["video_path"],
+                "output_files": json.loads(row["output_files"]) if row["output_files"] else [],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_stats(settings: SubtoolsSettings | None = None) -> dict[str, Any]:
+    """Compute aggregate statistics from the queue database.
+
+    Returns a dict with:
+        total_merged, total_failed, total_pending, success_rate,
+        avg_retries, oldest_pending_hours, generated_at.
+    """
+    result: dict[str, Any] = {
+        "total_merged": 0,
+        "total_failed": 0,
+        "total_pending": 0,
+        "success_rate": 0.0,
+        "avg_retries": 0.0,
+        "oldest_pending_hours": None,
+    }
+    try:
+        conn = _get_connection(settings=settings)
+        if conn is None:
+            return result
+        try:
+            row = conn.execute(
+                """SELECT
+                    COALESCE(SUM(CASE WHEN status='done' THEN 1 ELSE 0 END), 0) AS merged,
+                    COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) AS failed,
+                    COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END), 0) AS pending,
+                    COALESCE(AVG(CASE WHEN status IN ('done','failed') THEN attempt_count END), 0.0) AS avg_r
+                FROM pending_merges"""
+            ).fetchone()
+
+            total_merged = row[0]
+            total_failed = row[1]
+            total_pending = row[2]
+            avg_retries = float(row[3])
+
+            total_done = total_merged + total_failed
+            success_rate = total_merged / total_done if total_done > 0 else 0.0
+
+            oldest_hours: float | None = None
+            if total_pending > 0:
+                oldest_row = conn.execute(
+                    "SELECT MIN(first_seen) FROM pending_merges WHERE status='pending'"
+                ).fetchone()
+                if oldest_row and oldest_row[0]:
+                    try:
+                        first_seen = datetime.fromisoformat(oldest_row[0])
+                        oldest_hours = round(
+                            (datetime.now(timezone.utc) - first_seen).total_seconds() / 3600, 1
+                        )
+                    except (ValueError, TypeError):
+                        pass
+
+            result.update({
+                "total_merged": total_merged,
+                "total_failed": total_failed,
+                "total_pending": total_pending,
+                "success_rate": round(success_rate, 4),
+                "avg_retries": round(avg_retries, 2),
+                "oldest_pending_hours": oldest_hours,
+            })
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to compute queue stats: {e}")
+
+    result["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return result
 
 
 # Background worker management

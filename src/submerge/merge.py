@@ -20,6 +20,15 @@ class InvalidSubtitleError(Exception):
 
 
 @dataclass
+class QualityWarning:
+    """Warning about potential quality issues in merged output."""
+
+    code: str
+    message: str
+    severity: Literal["warning", "error"]
+
+
+@dataclass
 class MergeConfig:
     """Configuration for bilingual merge.
 
@@ -67,6 +76,106 @@ def _hex_to_color(hex_color: str) -> Color:
 
     # pysubs2 Color: (r, g, b, a) where a=0 means opaque
     return Color(r, g, b, 0)
+
+
+def run_quality_checks(
+    merged: SSAFile,
+    sub1_name: str,
+    sub2_name: str,
+) -> list[QualityWarning]:
+    """Run post-merge quality checks on the merged ASS file.
+
+    Performs four independent checks:
+    - OVERLAP_BOTTOM: overlapping bottom-track events (possible duplicate language source)
+    - SUSPICIOUS_RATIO: extreme imbalance between bottom/top event counts
+    - LOW_COVERAGE: many bottom events have no temporal match in top track
+    - EMPTY_TRACK: one track contributed zero events
+
+    Args:
+        merged: The merged SSAFile after deduplication.
+        sub1_name: Filename of the first (bottom) subtitle source.
+        sub2_name: Filename of the second (top) subtitle source.
+
+    Returns:
+        List of QualityWarning objects (may be empty if no issues found).
+    """
+    warnings: list[QualityWarning] = []
+
+    bottom_events = [e for e in merged.events if e.style == "bottom"]
+    top_events = [e for e in merged.events if e.style == "top"]
+
+    # --- Check D: EMPTY_TRACK ---
+    if len(bottom_events) == 0:
+        warnings.append(
+            QualityWarning(
+                code="EMPTY_TRACK",
+                severity="error",
+                message=f"Track '{sub1_name}' contributed 0 events to merged output",
+            )
+        )
+    if len(top_events) == 0:
+        warnings.append(
+            QualityWarning(
+                code="EMPTY_TRACK",
+                severity="error",
+                message=f"Track '{sub2_name}' contributed 0 events to merged output",
+            )
+        )
+    if warnings:
+        return warnings  # early return — ratio/coverage meaningless with empty track
+
+    # --- Check A: OVERLAP_BOTTOM ---
+    bottom_sorted = sorted(bottom_events, key=lambda e: e.start)
+    overlap_count = 0
+    for i in range(len(bottom_sorted) - 1):
+        if bottom_sorted[i].end > bottom_sorted[i + 1].start:
+            overlap_count += 1
+    if overlap_count >= 3:
+        warnings.append(
+            QualityWarning(
+                code="OVERLAP_BOTTOM",
+                severity="warning",
+                message=(
+                    f"Found {overlap_count} overlapping bottom-track events "
+                    f"— possible duplicate language source track"
+                ),
+            )
+        )
+
+    # --- Check B: SUSPICIOUS_RATIO ---
+    ratio = len(bottom_events) / max(len(top_events), 1)
+    if ratio > 3.0 or ratio < 0.33:
+        warnings.append(
+            QualityWarning(
+                code="SUSPICIOUS_RATIO",
+                severity="warning",
+                message=(
+                    f"Line count imbalance: bottom={len(bottom_events)}, "
+                    f"top={len(top_events)}, ratio={ratio:.1f}"
+                ),
+            )
+        )
+
+    # --- Check C: LOW_COVERAGE ---
+    covered = 0
+    for be in bottom_events:
+        for te in top_events:
+            if te.start < be.end and te.end > be.start:
+                covered += 1
+                break
+    coverage = covered / max(len(bottom_events), 1)
+    if coverage < 0.55:
+        warnings.append(
+            QualityWarning(
+                code="LOW_COVERAGE",
+                severity="warning",
+                message=(
+                    f"Only {coverage:.0%} of bottom events have a matching top event"
+                ),
+            )
+        )
+
+    return warnings
 
 
 # Regex to strip inline alignment/position/move overrides from subtitle text.
@@ -142,7 +251,7 @@ def merge_bilingual(
     sub2_path: str | Path,
     output_path: str | Path,
     config: MergeConfig | None = None,
-) -> Path:
+) -> tuple[Path, list[QualityWarning]]:
     """Merge two subtitle files into a bilingual ASS file.
 
     Args:
@@ -152,7 +261,7 @@ def merge_bilingual(
         config: Style configuration (optional)
 
     Returns:
-        Path to created ASS file
+        Tuple of (output path, list of quality warnings)
 
     Raises:
         InvalidSubtitleError: If a file cannot be loaded
@@ -307,6 +416,14 @@ def merge_bilingual(
         logger.info(f"Deduplication removed {removed} duplicate event(s)")
     merged.events = unique_events
 
+    # Run post-merge quality checks
+    sub1_name = sub1_path.name
+    sub2_name = sub2_path.name
+    warnings = run_quality_checks(merged, sub1_name, sub2_name)
+    if warnings:
+        for w in warnings:
+            logger.warning(f"Quality check [{w.code}] {w.message}")
+
     # Save as ASS
     output_path.parent.mkdir(parents=True, exist_ok=True)
     # Embed config fingerprint for re-merge detection
@@ -318,4 +435,4 @@ def merge_bilingual(
         f"Bilingual file created: {output_path} ({len(subs1)} + {len(subs2)} = {len(merged)} lines)"
     )
 
-    return output_path
+    return output_path, warnings
