@@ -63,7 +63,7 @@ addopts = "-v --tb=short"
 [dependency-groups]
 dev = [
     "filelock>=3.29.0",
-    "httpx>=0.28.1",
+    "httpx2>=0.28",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=4.0",

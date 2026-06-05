@@ -273,6 +273,31 @@ uv run pytest
 uv run ruff check src tests
 ```
 
+### Project Structure
+
+```
+src/submerge/
+├── api.py              # App factory, middleware, lifespan, shared helpers, UI routes
+├── routers/            # Modular API route handlers
+│   ├── __init__.py
+│   ├── history.py      # /api/history, /api/history/clear
+│   ├── merge.py        # /api/merge, /api/batch-merge, /api/sync
+│   ├── presets.py      # /api/presets (CRUD)
+│   ├── queue.py        # /api/queue, /api/polls
+│   ├── scanner.py      # /api/media, /scan, /api/frame-extract
+│   ├── schedule.py     # /api/settings/schedule
+│   └── settings.py     # /api/settings, /api/settings/default-template
+├── config.py           # SubtoolsSettings model via Pydantic
+├── hook.py             # Bazarr/Lingarr webhook processing, polling
+├── merge.py            # Core bilingual subtitle merge logic
+├── queue.py            # Persistent retry queue (SQLite)
+├── scanner.py          # Media directory scanner
+├── sync.py             # ffsubsync integration
+├── cli.py              # CLI entry point
+├── templates/          # Jinja2 HTML templates
+└── static/             # CSS, JS static assets
+```
+
 ## License
 
 MIT
