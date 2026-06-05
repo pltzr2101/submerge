@@ -40,7 +40,7 @@ class TestSyncBidirectional:
         ko_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\n안녕\n")
         (tmp_path / "film.mkv").touch()
 
-        with patch("submerge.api.sync_subtitles") as mock_sync:
+        with patch("submerge.routers.merge.sync_subtitles") as mock_sync:
             mock_sync.return_value = MagicMock(
                 success=True,
                 output_path=de_sub,
@@ -69,7 +69,7 @@ class TestSyncBidirectional:
         de_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
         (tmp_path / "film.mkv").touch()
 
-        with patch("submerge.api.sync_subtitles") as mock_sync:
+        with patch("submerge.routers.merge.sync_subtitles") as mock_sync:
             mock_sync.return_value = MagicMock(
                 success=True,
                 output_path=ko_sub,
@@ -216,7 +216,7 @@ class TestSyncEdgeCases:
         from submerge.sync import SyncResult
 
         with patch(
-            "submerge.api.sync_subtitles",
+            "submerge.routers.merge.sync_subtitles",
             return_value=SyncResult(success=False, output_path=de_sub, offset_ms=35000),
         ):
             resp = client.post(
@@ -274,7 +274,7 @@ class TestSyncParallelSerialization:
 
         transport = ASGITransport(app=submerge.api.app)
 
-        with patch("submerge.api.sync_subtitles", side_effect=_slow_sync):
+        with patch("submerge.routers.merge.sync_subtitles", side_effect=_slow_sync):
             async with AsyncClient(transport=transport, base_url="http://test") as client:
 
                 async def _post():

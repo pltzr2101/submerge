@@ -614,8 +614,6 @@ def health() -> dict:
     }
 
 
-
-
 @app.get("/logs/stream")
 async def logs_stream():
     """SSE endpoint for streaming log messages."""
@@ -644,7 +642,6 @@ async def logs_stream():
 async def ui_history(request: Request):
     """Merge history page."""
     return templates.TemplateResponse(request, "history.html", {})
-
 
 
 _DEFAULT_PRESETS = {
@@ -880,7 +877,6 @@ async def _execute_scheduled_merge() -> None:
         )
     except Exception as exc:
         logger.error(f"Scheduled auto-merge failed: {exc}")
-
 
 
 # Include modular routers (imported at end to avoid circular imports)
