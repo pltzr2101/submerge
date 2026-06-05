@@ -55,6 +55,10 @@ logger = logging.getLogger("submerge")
 # SSE log queue for streaming to UI - lazy init (Fix 1: avoid asyncio.Queue outside event loop)
 _log_queue: asyncio.Queue[str] | None = None
 
+# Cached reference to the main event loop so threads in run_in_executor can
+# still push log messages to the SSE queue via call_soon_threadsafe.
+_main_event_loop: asyncio.AbstractEventLoop | None = None
+
 # Per-file asyncio locks to serialize parallel sync calls on the same file
 _sync_locks: dict[str, asyncio.Lock] = {}
 
@@ -88,9 +92,10 @@ class SSEHandler(logging.Handler):
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                return  # No event loop running, silently discard
+                loop = _main_event_loop
+            if loop is None or not loop.is_running():
+                return
             q = _get_log_queue()
-            # Drop oldest if full before enqueuing
             if q.full():
                 with suppress(asyncio.QueueEmpty):
                     q.get_nowait()
@@ -190,6 +195,9 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Startup and shutdown lifecycle."""
+        global _main_event_loop
+        _main_event_loop = asyncio.get_running_loop()
+
         settings = get_settings()
         if not settings.pairs:
             logger.error(
