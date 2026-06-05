@@ -282,6 +282,10 @@ class SubtoolsSettings(BaseSettings):
     # Stacked layout
     stacked_gap: int = 40
 
+    # Notifications
+    notification_url: str = ""
+    notification_token: str = ""
+
     @classmethod
     def with_overrides(cls, **overrides: Any) -> SubtoolsSettings:
         """Create a new instance with the given field overrides applied.

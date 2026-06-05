@@ -57,6 +57,23 @@
             </div>
         </fieldset>
 
+        <fieldset>
+            <legend>Notifications</legend>
+
+            <div class="form-group">
+                <label for="notificationUrl">Notification URL</label>
+                <input type="text" id="notificationUrl" name="notification_url" value="{{ settings.notification_url }}"
+                       placeholder="https://ntfy.sh/mein-topic" class="form-control">
+                <small class="text-muted">Kompatibel mit ntfy.sh und generischen Webhooks</small>
+            </div>
+
+            <div class="form-group">
+                <label for="notificationToken">Notification Token</label>
+                <input type="password" id="notificationToken" name="notification_token" value="{{ settings.notification_token }}"
+                       placeholder="Optional: Bearer-Token" class="form-control">
+            </div>
+        </fieldset>
+
         <div id="settingsStatus" class="status-msg hidden"></div>
         <button type="submit" class="btn btn-primary">Save Settings</button>
     </form>

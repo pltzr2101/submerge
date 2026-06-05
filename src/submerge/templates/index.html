@@ -6,8 +6,8 @@
     <h1>Media Overview</h1>
     <div class="toolbar">
         <select id="filterSelect" class="filter-select">
-            <option value="all">All</option>
-            <option value="needs-merge" selected>Not Merged</option>
+            <option value="all" selected>All</option>
+            <option value="needs-merge">Not Merged</option>
             <option value="merged">Merged</option>
             <option value="missing-langs">Missing Languages</option>
             <option value="error">Error</option>
@@ -47,6 +47,7 @@
         <option value="">Effective Settings</option>
     </select>
     <button id="btnBatchReMerge" class="btn btn-success" onclick="executeBatchReMerge()">Re-merge selected</button>
+    <button id="btnBatchDelete" class="btn btn-danger" onclick="executeBatchDelete()">Delete selected merged</button>
     <a href="#" onclick="deselectAll(); return false;" style="margin-left: 12px; color: var(--text-muted);">Deselect all</a>
 </div>
 
@@ -66,6 +67,17 @@
             <button class="btn" onclick="closeModal()">Cancel</button>
         </div>
     </div>
+</div>
+
+<!-- Subtitle Preview Modal -->
+<div id="previewModal" class="modal-overlay hidden" onclick="if(event.target===this)document.getElementById('previewModal').classList.add('hidden')">
+  <div class="modal" style="max-width:700px;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <h3 id="previewModalTitle">Subtitle Preview</h3>
+      <button class="modal-close" onclick="document.getElementById('previewModal').classList.add('hidden')">&times;</button>
+    </div>
+    <div id="previewModalBody" class="modal-body" style="overflow-y:auto;flex:1;padding:12px"></div>
+  </div>
 </div>
 
 <!-- Delete Confirmation Modal -->
@@ -99,7 +111,7 @@
 const PAIRS = {{ pairs | tojson }};
 const LANGS = {{ langs | tojson }};
 let allEntries = [];
-let currentFilter = 'needs-merge';
+let currentFilter = 'all';
 let pendingMergeVideo = null;
 let pendingMergeOverwrite = false;
 let pendingDeleteVideo = null;
@@ -123,6 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape') {
             closeModal();
             closeDeleteModal();
+            document.getElementById('previewModal').classList.add('hidden');
         }
     });
 
@@ -207,6 +220,12 @@ function renderTable() {
             } else {
                 actions += `<button class="btn btn-sm btn-accent" onclick="showMergeModal('${escAttr(entry.video_path)}', true)">Re-merge</button> `;
                 actions += `<button class="btn btn-sm btn-danger" onclick="showDeleteModal('${escAttr(entry.video_path)}')">🗑</button> `;
+                for (const pair of PAIRS) {
+                    const ms = entry.merged_status[pair];
+                    if (ms && ms.present && ms.path) {
+                        actions += `<button class="btn btn-sm btn-outline" title="Preview ${pair}" onclick="showSubtitlePreview('${escAttr(ms.path)}')">👁 ${pair}</button> `;
+                    }
+                }
             }
         }
         // Sync buttons
@@ -317,6 +336,27 @@ function showDeleteModal(videoPath) {
 function closeDeleteModal() {
     document.getElementById('deleteModal').classList.add('hidden');
     pendingDeleteVideo = null;
+}
+
+async function showSubtitlePreview(assPath) {
+    try {
+        const resp = await fetch('/api/subtitle-preview?path=' + encodeURIComponent(assPath) + '&limit=20');
+        if (!resp.ok) { showStatus('Preview nicht verf\u00fcgbar', 'error'); return; }
+        const data = await resp.json();
+        const rows = data.preview.map(c =>
+            `<tr><td style="white-space:nowrap;color:var(--text-muted);font-size:0.85em">${escHtml(c.start)} \u2192 ${escHtml(c.end)}</td><td>${escHtml(c.text)}</td></tr>`
+        ).join('');
+        document.getElementById('previewModalTitle').textContent =
+            data.path.split('/').pop() + ` (${data.total_events} Events)`;
+        document.getElementById('previewModalBody').innerHTML =
+            `<table style="width:100%;border-collapse:collapse"><thead><tr>
+                <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border)">Zeit</th>
+                <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border)">Text</th>
+            </tr></thead><tbody>${rows}</tbody></table>`;
+        document.getElementById('previewModal').classList.remove('hidden');
+    } catch (e) {
+        showStatus('Preview fehlgeschlagen: ' + e.message, 'error');
+    }
 }
 
 // === Action execution ===
@@ -540,6 +580,47 @@ async function executeBatchReMerge() {
     batchMergeBusy = false;
     deselectAll();
     setTimeout(loadMedia, 3000);
+}
+
+async function executeBatchDelete() {
+    const checked = document.querySelectorAll('.chk-video:checked');
+    if (checked.length === 0) return;
+
+    // Only delete for videos that are actually merged (all_merged === true)
+    const videoPaths = Array.from(checked)
+        .map(cb => cb.dataset.videoPath)
+        .filter(vp => {
+            const entry = allEntries.find(e => e.video_path === vp);
+            return entry && entry.all_merged;
+        });
+
+    if (videoPaths.length === 0) {
+        showStatus('Keine gemergten Subtitles unter den markierten Videos gefunden.', 'warning');
+        return;
+    }
+
+    // Confirmation dialog
+    if (!confirm(`Gemergete Subtitle-Dateien f\u00fcr ${videoPaths.length} Video(s) l\u00f6schen?\nOriginal-SRT-Dateien bleiben erhalten.`)) return;
+
+    showStatus(`L\u00f6sche ${videoPaths.length} gemergete Subtitles...`, 'info');
+    let deleted = 0;
+    let errors = 0;
+    for (const vp of videoPaths) {
+        try {
+            const resp = await fetch('/api/media/merged', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({video_path: vp}),
+            });
+            const data = await resp.json();
+            if (data.status === 'ok') deleted++;
+            else errors++;
+        } catch (_) { errors++; }
+    }
+    const msg = `Batch-Delete: ${deleted} gel\u00f6scht${errors > 0 ? `, ${errors} Fehler` : ''}`;
+    showStatus(msg, errors > 0 ? 'error' : 'success');
+    deselectAll();
+    setTimeout(loadMedia, 2000);
 }
 
 function connectLogStream() {

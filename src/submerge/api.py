@@ -883,6 +883,7 @@ async def _execute_scheduled_merge() -> None:
 from .routers.history import router as _history_router  # noqa: E402
 from .routers.merge import router as _merge_router  # noqa: E402
 from .routers.presets import router as _presets_router  # noqa: E402
+from .routers.preview import router as _preview_router  # noqa: E402
 from .routers.queue import router as _queue_router  # noqa: E402
 from .routers.scanner import _run_scan  # noqa: E402
 from .routers.scanner import router as _scanner_router  # noqa: E402
@@ -892,6 +893,7 @@ from .routers.settings import router as _settings_router  # noqa: E402
 app.include_router(_history_router)
 app.include_router(_merge_router)
 app.include_router(_presets_router)
+app.include_router(_preview_router)
 app.include_router(_queue_router)
 app.include_router(_scanner_router)
 app.include_router(_schedule_router)

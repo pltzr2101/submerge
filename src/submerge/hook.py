@@ -577,8 +577,24 @@ def process_bilingual_merge(
         # Cleanup partially created files
         for f in created_files:
             f.unlink(missing_ok=True)
+        from .notify import send_notification
+
+        send_notification(
+            title="Submerge: Merge fehlgeschlagen",
+            message=f"{video_path.name}: {str(e)}",
+            settings=settings,
+            tags=["x", "submerge"],
+        )
         raise ProcessingError(f"Error during processing: {e}") from e
 
+    from .notify import send_notification
+
+    send_notification(
+        title="Submerge: Merge abgeschlossen",
+        message=f"{video_path.name} → {len(created_files)} Datei(en) erstellt",
+        settings=settings,
+        tags=["white_check_mark", "submerge"],
+    )
     return created_files
 
 

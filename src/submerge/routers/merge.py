@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ from ..hook import (
     should_skip_existing,
     start_polling,
 )
+from ..queue import dequeue, enqueue
 from ..sync import FfsubsyncNotFoundError, SyncError, sync_subtitles, sync_subtitles_to_video
 
 logger = logging.getLogger(__name__)
@@ -77,9 +79,19 @@ async def api_merge(request: Request):
         cancel_polling(video_path)
 
         loop = asyncio.get_running_loop()
+        t0 = time.monotonic()
         created_files = await loop.run_in_executor(
             None,
             lambda: process_bilingual_merge(video_path, sub_paths, merge_settings),
+        )
+        duration_ms = round((time.monotonic() - t0) * 1000)
+        enqueue(video_path, merge_settings)
+        dequeue(
+            video_path,
+            status="done",
+            duration_ms=duration_ms,
+            output_files=[str(f) for f in created_files],
+            settings=merge_settings,
         )
         return {
             "status": "merged",
@@ -116,7 +128,17 @@ def _merge_one_video(
         if not overwrite and should_skip_existing(video_path, sub_paths, merge_settings):
             return {"video": video_path.name, "status": "skipped", "reason": "already_exists"}
 
+        t0 = time.monotonic()
         created_files = process_bilingual_merge(video_path, sub_paths, merge_settings)
+        duration_ms = round((time.monotonic() - t0) * 1000)
+        enqueue(video_path, merge_settings)
+        dequeue(
+            video_path,
+            status="done",
+            duration_ms=duration_ms,
+            output_files=[str(f) for f in created_files],
+            settings=merge_settings,
+        )
         return {
             "video": video_path.name,
             "status": "merged",
@@ -124,6 +146,8 @@ def _merge_one_video(
         }
     except Exception as e:
         logger.error(f"Batch re-merge error for {video_path.name}: {e}")
+        enqueue(video_path, merge_settings)
+        dequeue(video_path, status="failed", error_msg=str(e), settings=merge_settings)
         return {"video": video_path.name, "status": "error", "reason": str(e)}
 
 
