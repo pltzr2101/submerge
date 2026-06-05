@@ -14,6 +14,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _ms_to_str(ms: int) -> str:
+    """Convert milliseconds to ASS/SRT time string (H:MM:SS.cc)."""
+    h = ms // 3600000
+    m = (ms % 3600000) // 60000
+    s = (ms % 60000) // 1000
+    cs = (ms % 1000) // 10
+    return f"{h:01d}:{m:02d}:{s:02d}.{cs:02d}"
+
+
 @router.get("/api/subtitle-preview")
 def api_subtitle_preview(path: str, limit: int = 20):
     """Return first `limit` cues of a subtitle file as JSON."""
@@ -27,8 +36,8 @@ def api_subtitle_preview(path: str, limit: int = 20):
         cues = [
             {
                 "index": i,
-                "start": pysubs2.time.ms_to_str(e.start),
-                "end": pysubs2.time.ms_to_str(e.end),
+                "start": _ms_to_str(e.start),
+                "end": _ms_to_str(e.end),
                 "text": e.plaintext.strip(),
                 "style": e.style,
             }
