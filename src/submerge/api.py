@@ -175,6 +175,8 @@ def _runtime_settings_to_response() -> dict[str, Any]:
         "top_outline": settings.top_outline,
         "top_outline_color": settings.top_outline_color,
         "layout": settings.layout,
+        "notification_url": settings.notification_url,
+        "notification_token": "***" if settings.notification_token else "",
     }
 
 

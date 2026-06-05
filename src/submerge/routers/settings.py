@@ -61,6 +61,10 @@ async def api_settings(request: Request):
             # -- Build candidate from known model fields (exclude pairs — already handled) --
             candidate = {k: v for k, v in body.items() if k in known_fields and k != "pairs_raw"}
 
+            # Prevent masked token placeholder from overwriting the real token
+            if candidate.get("notification_token") == "***":
+                del candidate["notification_token"]
+
             if candidate:
                 try:
                     validated = SubtoolsSettings.with_overrides(**candidate)

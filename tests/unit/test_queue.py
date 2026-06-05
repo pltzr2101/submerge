@@ -14,6 +14,7 @@ from submerge.queue import (
     get_pending_entries,
     init_db,
     process_queue,
+    record_failed,
     remove_entry,
 )
 
@@ -165,3 +166,49 @@ class TestGetPendingEntries:
     def test_returns_empty_when_none_pending(self, tmp_path, queue_settings):
         pending = get_pending_entries(settings=queue_settings)
         assert len(pending) == 0
+
+
+class TestRecordFailed:
+    """Tests for atomic failed-entry recording."""
+
+    def test_creates_failed_entry_directly(self, tmp_path, queue_settings):
+        """record_failed inserts 'failed' status without ever being 'pending'."""
+        video = tmp_path / "media" / "Show.mkv"
+        video.touch()
+
+        record_failed(video, "something broke", settings=queue_settings)
+
+        entries = get_all_entries(settings=queue_settings)
+        assert len(entries) == 1
+        assert entries[0]["status"] == "failed"
+        assert entries[0]["error_msg"] == "something broke"
+        # It should never show up in pending entries
+        pending = get_pending_entries(settings=queue_settings)
+        assert len(pending) == 0
+
+    def test_update_existing_to_failed(self, tmp_path, queue_settings):
+        """record_failed on an existing pending entry updates it to failed."""
+        video = tmp_path / "media" / "Show.mkv"
+        video.touch()
+
+        enqueue(video, queue_settings)
+        record_failed(video, "merge crashed", settings=queue_settings)
+
+        entries = get_all_entries(settings=queue_settings)
+        assert len(entries) == 1
+        assert entries[0]["status"] == "failed"
+        assert entries[0]["error_msg"] == "merge crashed"
+        pending = get_pending_entries(settings=queue_settings)
+        assert len(pending) == 0
+
+    def test_record_failed_no_video_file_needed(self, tmp_path, queue_settings):
+        """record_failed works even if the video file doesn't exist."""
+        video = tmp_path / "media" / "gone.mkv"
+        # Don't create the file
+
+        record_failed(video, "file missing", settings=queue_settings)
+
+        entries = get_all_entries(settings=queue_settings)
+        assert len(entries) == 1
+        assert entries[0]["status"] == "failed"
+        assert entries[0]["video_name"] == "gone.mkv"

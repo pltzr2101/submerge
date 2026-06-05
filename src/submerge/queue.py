@@ -189,6 +189,46 @@ def dequeue(
         conn.close()
 
 
+def record_failed(
+    video_path: str | Path,
+    error_msg: str,
+    settings: SubtoolsSettings | None = None,
+) -> None:
+    """Insert or update a queue entry directly as 'failed'.
+
+    Unlike enqueue()+dequeue(), this is a single atomic write that never
+    transitions through 'pending', avoiding race conditions with the
+    background queue worker.
+
+    Args:
+        video_path: Path to the video file
+        error_msg: Error description for the history/log
+        settings: Configuration for DB path
+    """
+    video_path = str(Path(video_path).resolve())
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _get_connection(settings=settings)
+    if conn is None:
+        return
+    try:
+        conn.execute(
+            """INSERT INTO pending_merges
+               (video_path, langs_present, langs_missing, first_seen, last_checked,
+                attempt_count, status, error_msg)
+               VALUES (?, '[]', '[]', ?, ?, 1, 'failed', ?)
+               ON CONFLICT(video_path) DO UPDATE SET
+                   status = 'failed',
+                   error_msg = excluded.error_msg,
+                   last_checked = excluded.last_checked,
+                   attempt_count = attempt_count + 1""",
+            (video_path, now, now, error_msg),
+        )
+        conn.commit()
+        logger.debug(f"Recorded failed: {Path(video_path).name}")
+    finally:
+        conn.close()
+
+
 def remove_entry(video_path: str | Path, settings: SubtoolsSettings | None = None) -> None:
     """Remove a queue entry entirely."""
     video_path = str(Path(video_path).resolve())

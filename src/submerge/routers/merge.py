@@ -28,7 +28,7 @@ from ..hook import (
     should_skip_existing,
     start_polling,
 )
-from ..queue import dequeue, enqueue
+from ..queue import dequeue, enqueue, record_failed
 from ..sync import FfsubsyncNotFoundError, SyncError, sync_subtitles, sync_subtitles_to_video
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,9 @@ async def api_merge(request: Request):
             raise HTTPException(
                 status_code=400, detail={"status": "error", "message": "video_path required"}
             )
+
+        video_path: Path | None = None
+        merge_settings: SubtoolsSettings | None = None
 
         video_path = validate_path(video_path_str, "video_path", check_media_root=True)
         overwrite = body.get("overwrite", False)
@@ -103,6 +106,17 @@ async def api_merge(request: Request):
         raise
     except Exception as e:
         logger.exception(f"Merge error: {e}")
+        try:
+            if video_path is not None:
+                enqueue(video_path, merge_settings)
+                dequeue(
+                    video_path,
+                    status="failed",
+                    error_msg=str(e),
+                    settings=merge_settings,
+                )
+        except Exception:
+            pass  # History failure must not block the HTTP response
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
@@ -146,8 +160,7 @@ def _merge_one_video(
         }
     except Exception as e:
         logger.error(f"Batch re-merge error for {video_path.name}: {e}")
-        enqueue(video_path, merge_settings)
-        dequeue(video_path, status="failed", error_msg=str(e), settings=merge_settings)
+        record_failed(video_path, str(e), settings=merge_settings)
         return {"video": video_path.name, "status": "error", "reason": str(e)}
 
 
