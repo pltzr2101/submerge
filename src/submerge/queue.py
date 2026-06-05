@@ -435,9 +435,7 @@ def clear_history(settings: SubtoolsSettings | None = None) -> int:
     if conn is None:
         return 0
     try:
-        cursor = conn.execute(
-            "DELETE FROM pending_merges WHERE status IN ('done', 'failed')"
-        )
+        cursor = conn.execute("DELETE FROM pending_merges WHERE status IN ('done', 'failed')")
         conn.commit()
         return cursor.rowcount
     finally:

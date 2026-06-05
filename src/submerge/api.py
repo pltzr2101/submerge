@@ -1095,9 +1095,7 @@ def api_history(limit: int = 200):
         return JSONResponse({"entries": entries, "count": len(entries)})
     except Exception as e:
         logger.error(f"History fetch error: {e}")
-        raise HTTPException(
-            status_code=500, detail={"status": "error", "message": str(e)}
-        ) from e
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.post("/api/history/clear")
@@ -1111,9 +1109,7 @@ def api_history_clear():
         logger.info(f"History cleared: {count} entries removed")
         return {"status": "ok", "removed": count}
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail={"status": "error", "message": str(e)}
-        ) from e
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
 @app.get("/history", response_class=HTMLResponse)
