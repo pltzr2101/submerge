@@ -15,6 +15,7 @@ from . import __version__
 from .extract import SubtitleExtractionError, extract_subtitles
 from .merge import InvalidSubtitleError, MergeConfig, merge_bilingual
 from .probe import NoSubtitleTracksError, ProbeError, list_subtitle_tracks
+from .sync import FfsubsyncNotFoundError, SyncError, sync_subtitles, sync_subtitles_to_video
 
 console = Console()
 logger = logging.getLogger("submerge")
@@ -167,16 +168,6 @@ def extract_cmd(
         sys.exit(1)
 
 
-def check_ffsubsync_available() -> bool:
-    """Check if ffsubsync is installed."""
-    try:
-        import ffsubsync  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
 @main.command("sync")
 @click.argument("input", type=click.Path(exists=True, path_type=Path))
 @click.option(
@@ -198,7 +189,7 @@ def check_ffsubsync_available() -> bool:
     "-o",
     type=click.Path(path_type=Path),
     required=True,
-    help="Output file",
+    help="Output file (different from input to preserve the original)",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Verbose mode")
 def sync_cmd(
@@ -226,12 +217,6 @@ def sync_cmd(
     """
     setup_logging(verbose)
 
-    # Check ffsubsync
-    if not check_ffsubsync_available():
-        console.print("[red]Error:[/red] ffsubsync is not installed.")
-        console.print("Install it with: [bold]pip install 'submerge[sync]'[/bold]")
-        sys.exit(1)
-
     # Check that we have --ref or --video
     if ref is None and video is None:
         console.print("[red]Error:[/red] You must specify --ref or --video")
@@ -240,9 +225,6 @@ def sync_cmd(
     if ref is not None and video is not None:
         console.print("[red]Error:[/red] Specify --ref OR --video, not both")
         sys.exit(1)
-
-    # Late import (ffsubsync may not be installed)
-    from .sync import FfsubsyncNotFoundError, SyncError, sync_subtitles, sync_subtitles_to_video
 
     try:
         if ref is not None:
@@ -260,7 +242,6 @@ def sync_cmd(
 
     except FfsubsyncNotFoundError as e:
         console.print(f"\n[red]Error:[/red] {e}")
-        console.print("Install with: [bold]pip install 'submerge[sync]'[/bold]")
         sys.exit(1)
     except SyncError as e:
         console.print(f"\n[red]Sync error:[/red] {e}")

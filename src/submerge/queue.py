@@ -141,6 +141,23 @@ def enqueue(video_path: str | Path, settings: SubtoolsSettings | None = None) ->
             logger.debug(f"Queue updated: {video.name} (attempt {existing[1] + 1})")
             return False
         else:
+            # Enforce queue size limit: reject new entries if pending
+            # count already exceeds _QUEUE_MAX_ENTRIES, logging a warning
+            # so operators can tune the limit or clear the queue.
+            pending_count = conn.execute(
+                "SELECT COUNT(*) FROM pending_merges WHERE status = 'pending'"
+            ).fetchone()[0]
+            if pending_count >= _QUEUE_MAX_ENTRIES:
+                logger.warning(
+                    "Queue full (%d pending entries — limit is %d). "
+                    "New entry for %s rejected. Clear done/failed entries "
+                    "or raise _QUEUE_MAX_ENTRIES.",
+                    pending_count,
+                    _QUEUE_MAX_ENTRIES,
+                    video.name,
+                )
+                return False
+
             conn.execute(
                 """INSERT INTO pending_merges
                    (video_path, langs_present, langs_missing, first_seen, last_checked, status)

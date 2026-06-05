@@ -76,7 +76,13 @@ def extract_subtitles(
 
     # Calculate relative index for -map 0:s:N
     # ffmpeg uses an index relative to subtitle tracks, not absolute index
-    sub_relative_index = next(i for i, t in enumerate(tracks) if t.index == selected_track.index)
+    sub_relative_index = next(
+        (i for i, t in enumerate(tracks) if t.index == selected_track.index), None
+    )
+    if sub_relative_index is None:
+        raise SubtitleExtractionError(
+            f"Track #{selected_track.index} not found in stream list"
+        )
 
     cmd = [
         "ffmpeg",

@@ -55,16 +55,17 @@ def sync_subtitles(
 ) -> SyncResult:
     """Synchronize subtitles to a reference via ffsubsync.
 
-    The synced result replaces *input_path* in-place so that the
-    file-name pattern ``{video_stem}.{lang}.srt`` is preserved —
-    hook.py / scanner.py depend on this convention.
+    When *output_path* is None or equals *input_path*, the result
+    overwrites *input_path* in-place.  A ``.bak`` backup is created
+    before any modification in that case.
 
-    A permanent ``.bak`` backup is created before any modification.
+    When *output_path* is a different path, the synced result is
+    written there and *input_path* is left untouched (no backup).
 
     Args:
         reference_path: Path to reference file (well synchronized)
-        input_path: Path to file to synchronize (overwritten in-place)
-        output_path: Ignored; kept for backwards compatibility only
+        input_path: Path to file to use as sync input
+        output_path: Where to write the result (default: overwrite input in-place)
 
     Returns:
         SyncResult with status, path to the synced file,
@@ -79,11 +80,13 @@ def sync_subtitles(
     reference_path = Path(reference_path)
     input_path = Path(input_path)
 
-    if output_path is not None:
-        logger.warning(
-            "output_path argument is deprecated and ignored. "
-            "Subtitles are always overwritten in-place."
-        )
+    # Resolve output path: None or same path means in-place
+    in_place = output_path is None or Path(output_path).resolve() == input_path.resolve()
+    target_path = input_path if in_place else Path(output_path)
+
+    # Create parent directory for output if needed
+    if not in_place:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Validate input files
     for path in [reference_path, input_path]:
@@ -91,16 +94,17 @@ def sync_subtitles(
             raise SyncError(f"File not found: {path}")
         _validate_subtitle_format(path)
 
-    # Backup original before any modification
-    try:
-        backup_path = input_path.with_name(input_path.name + ".bak")
-        shutil.copy2(input_path, backup_path)
-        logger.info(f"Backup created: {backup_path}")
-    except OSError as e:
-        raise SyncError(f"Failed to create backup: {e}") from e
+    # Backup original only for in-place overwrites
+    if in_place:
+        try:
+            backup_path = input_path.with_name(input_path.name + ".bak")
+            shutil.copy2(input_path, backup_path)
+            logger.info(f"Backup created: {backup_path}")
+        except OSError as e:
+            raise SyncError(f"Failed to create backup: {e}") from e
 
-    # Sync into a temporary file, then atomically replace the original
-    tmp_output = input_path.with_name(input_path.name + ".tmp")
+    # Sync into a temporary file, then atomically replace the target
+    tmp_output = target_path.with_name(target_path.name + ".tmp")
 
     cmd = [
         ffs_cmd,
@@ -125,22 +129,23 @@ def sync_subtitles(
     if not tmp_output.exists():
         raise SyncError(f"Output file was not created: {tmp_output}")
 
-    # Atomically overwrite original (POSIX: rename is atomic)
+    # Atomically move tmp to target (POSIX: rename is atomic)
     try:
-        tmp_output.replace(input_path)
+        tmp_output.replace(target_path)
     except OSError as e:
         tmp_output.unlink(missing_ok=True)
         raise SyncError(
-            f"Failed to atomically replace original file: {e}. Backup preserved at: {backup_path}"
+            f"Failed to atomically replace output file: {e}."
+            + (f" Backup preserved at: {backup_path}" if in_place else "")
         ) from e
-    logger.info(f"Original overwritten in-place: {input_path}")
+    logger.info(f"Subtitles written: {target_path}")
 
     # Parse offset from output (if available)
     offset_ms = _parse_offset(result.stdout + result.stderr)
 
     if offset_ms is not None and abs(offset_ms) > 30_000:
         logger.warning(f"Large offset detected: {offset_ms}ms — verify result")
-        return SyncResult(success=False, output_path=input_path, offset_ms=offset_ms)
+        return SyncResult(success=False, output_path=target_path, offset_ms=offset_ms)
 
     if offset_ms is not None and abs(offset_ms) > 5000:
         logger.warning(
@@ -148,9 +153,9 @@ def sync_subtitles(
             "Verify that subtitles match the same media version."
         )
 
-    logger.info(f"Subtitles synchronized: {input_path}")
+    logger.info(f"Subtitles synchronized: {target_path}")
 
-    return SyncResult(success=True, output_path=input_path, offset_ms=offset_ms)
+    return SyncResult(success=True, output_path=target_path, offset_ms=offset_ms)
 
 
 def sync_subtitles_to_video(
@@ -164,13 +169,17 @@ def sync_subtitles_to_video(
     and align subtitles. Slower than sub-to-sub but doesn't
     require reference subtitles.
 
-    The synced result replaces *input_path* in-place. A permanent
-    ``.bak`` backup is created before any modification.
+    When *output_path* is None or equals *input_path*, the result
+    overwrites *input_path* in-place.  A ``.bak`` backup is created
+    before any modification in that case.
+
+    When *output_path* is a different path, the synced result is
+    written there and *input_path* is left untouched (no backup).
 
     Args:
         video_path: Path to video file (MKV, MP4, etc.)
-        input_path: Path to subtitle file to synchronize (overwritten in-place)
-        output_path: Ignored; kept for backwards compatibility only
+        input_path: Path to subtitle file to use as sync input
+        output_path: Where to write the result (default: overwrite input in-place)
 
     Returns:
         SyncResult with status, path to the synced file,
@@ -185,11 +194,13 @@ def sync_subtitles_to_video(
     video_path = Path(video_path)
     input_path = Path(input_path)
 
-    if output_path is not None:
-        logger.warning(
-            "output_path argument is deprecated and ignored. "
-            "Subtitles are always overwritten in-place."
-        )
+    # Resolve output path: None or same path means in-place
+    in_place = output_path is None or Path(output_path).resolve() == input_path.resolve()
+    target_path = input_path if in_place else Path(output_path)
+
+    # Create parent directory for output if needed
+    if not in_place:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Validate input files
     if not video_path.exists():
@@ -198,16 +209,17 @@ def sync_subtitles_to_video(
         raise SyncError(f"File not found: {input_path}")
     _validate_subtitle_format(input_path)
 
-    # Backup original before any modification
-    try:
-        backup_path = input_path.with_name(input_path.name + ".bak")
-        shutil.copy2(input_path, backup_path)
-        logger.info(f"Backup created: {backup_path}")
-    except OSError as e:
-        raise SyncError(f"Failed to create backup: {e}") from e
+    # Backup original only for in-place overwrites
+    if in_place:
+        try:
+            backup_path = input_path.with_name(input_path.name + ".bak")
+            shutil.copy2(input_path, backup_path)
+            logger.info(f"Backup created: {backup_path}")
+        except OSError as e:
+            raise SyncError(f"Failed to create backup: {e}") from e
 
-    # Sync into a temporary file, then atomically replace the original
-    tmp_output = input_path.with_name(input_path.name + ".tmp")
+    # Sync into a temporary file, then atomically replace the target
+    tmp_output = target_path.with_name(target_path.name + ".tmp")
 
     cmd = [
         ffs_cmd,
@@ -234,22 +246,23 @@ def sync_subtitles_to_video(
     if not tmp_output.exists():
         raise SyncError(f"Output file was not created: {tmp_output}")
 
-    # Atomically overwrite original
+    # Atomically move tmp to target (POSIX: rename is atomic)
     try:
-        tmp_output.replace(input_path)
+        tmp_output.replace(target_path)
     except OSError as e:
         tmp_output.unlink(missing_ok=True)
         raise SyncError(
-            f"Failed to atomically replace original file: {e}. Backup preserved at: {backup_path}"
+            f"Failed to atomically replace output file: {e}."
+            + (f" Backup preserved at: {backup_path}" if in_place else "")
         ) from e
-    logger.info(f"Original overwritten in-place: {input_path}")
+    logger.info(f"Subtitles written: {target_path}")
 
     # Parse offset from output (if available)
     offset_ms = _parse_offset(result.stdout + result.stderr)
 
     if offset_ms is not None and abs(offset_ms) > 30_000:
         logger.warning(f"Large offset detected: {offset_ms}ms — verify result")
-        return SyncResult(success=False, output_path=input_path, offset_ms=offset_ms)
+        return SyncResult(success=False, output_path=target_path, offset_ms=offset_ms)
 
     if offset_ms is not None and abs(offset_ms) > 5000:
         logger.warning(
@@ -257,9 +270,9 @@ def sync_subtitles_to_video(
             "Verify that subtitles match the same media version."
         )
 
-    logger.info(f"Subtitles synchronized: {input_path}")
+    logger.info(f"Subtitles synchronized: {target_path}")
 
-    return SyncResult(success=True, output_path=input_path, offset_ms=offset_ms)
+    return SyncResult(success=True, output_path=target_path, offset_ms=offset_ms)
 
 
 def _parse_offset(output: str) -> int | None:

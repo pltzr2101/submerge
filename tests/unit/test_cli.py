@@ -180,29 +180,6 @@ class TestSyncCommand:
         assert result.exit_code != 0
         assert "ref" in result.output.lower() or "video" in result.output.lower()
 
-    @patch("submerge.cli.check_ffsubsync_available")
-    def test_shows_install_message_when_ffsubsync_missing(
-        self, mock_check, runner, tmp_path: Path, sample_srt_fr: Path, sample_srt_pl: Path
-    ):
-        """Clear message if ffsubsync is not installed."""
-        mock_check.return_value = False
-
-        result = runner.invoke(
-            main,
-            [
-                "sync",
-                str(sample_srt_fr),
-                "--ref",
-                str(sample_srt_pl),
-                "-o",
-                str(tmp_path / "output.srt"),
-            ],
-        )
-
-        assert result.exit_code == 1
-        assert "ffsubsync" in result.output
-        assert "pip install" in result.output
-
 
 class TestMergeCommand:
     """Tests for merge command."""
