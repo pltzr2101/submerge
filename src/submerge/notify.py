@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-import httpx2
+import httpx
 
 from .config import SubtoolsSettings
 
@@ -58,7 +58,7 @@ async def send_notification_async(
     if tags:
         headers["Tags"] = ",".join(tags)
     try:
-        async with httpx2.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, content=message.encode(), headers=headers)
             resp.raise_for_status()
         logger.info(f"Notification sent: {title}")
@@ -83,7 +83,7 @@ def _send_notification_sync(
     if tags:
         headers["Tags"] = ",".join(tags)
     try:
-        with httpx2.Client(timeout=10) as client:
+        with httpx.Client(timeout=10) as client:
             resp = client.post(url, content=message.encode(), headers=headers)
             resp.raise_for_status()
         logger.info(f"Notification sent: {title}")
