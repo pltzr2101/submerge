@@ -1,0 +1,3 @@
+tests/fixtures/sample_euc_kr.srt binary
+tests/fixtures/sample_cp949.srt binary
+tests/fixtures/sample_garbage.bin binary
