@@ -227,6 +227,7 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `GET` | `/settings` | Settings page |
 | `GET` | `/history` | Merge history page |
 | `GET` | `/logs/stream` | SSE live log stream |
+| `GET` | `/api/settings` | Returns the current effective runtime settings. `notification_token` is always masked as `"***"` in the response. |
 | `POST` | `/api/settings` | Update runtime settings (in-memory, not persisted) |
 
 ## Web UI

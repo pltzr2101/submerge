@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("/api/settings")
+def api_get_settings():
+    """Return current effective settings (read-only).
+
+    notification_token is masked as '***' to prevent leaking credentials.
+    """
+    return {"status": "ok", "settings": _runtime_settings_to_response()}
+
+
 @router.post("/api/settings")
 async def api_settings(request: Request):
     """Apply runtime settings (in-memory only, not persisted)."""

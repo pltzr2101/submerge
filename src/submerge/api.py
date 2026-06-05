@@ -202,6 +202,8 @@ def create_app() -> FastAPI:
         # Module-level semaphore must be created inside the event loop.
         global _batch_semaphore
         _batch_semaphore = asyncio.Semaphore(4)
+        global _schedule_merge_lock
+        _schedule_merge_lock = asyncio.Lock()
         # Ensure locks directory exists
         locks_dir = Path(settings.config_dir) / "locks"
         locks_dir.mkdir(parents=True, exist_ok=True)
@@ -247,6 +249,7 @@ def create_app() -> FastAPI:
     # Rate limiting (in-memory, per deployment)
     _rate_limits: dict[str, list[float]] = {}
     _rate_limit_request_count: int = 0
+    _rate_limit_last_cleanup: float = 0.0
 
     class RateLimitMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
@@ -265,13 +268,16 @@ def create_app() -> FastAPI:
             bucket.append(now)
             _rate_limits[client] = bucket
 
-            # Periodic cleanup: cap dict to 10,000 keys, at most once per 100 requests
-            nonlocal _rate_limit_request_count
+            # Periodic cleanup: every 100 requests AND >1000 keys, or every 5 minutes AND >100 keys
+            nonlocal _rate_limit_request_count, _rate_limit_last_cleanup
             _rate_limit_request_count += 1
-            if _rate_limit_request_count % 100 == 0 and len(_rate_limits) > 10000:
+            if (_rate_limit_request_count % 100 == 0 and len(_rate_limits) > 1000) or (
+                now - _rate_limit_last_cleanup > 300 and len(_rate_limits) > 100
+            ):
                 stale = [k for k, v in _rate_limits.items() if not any(now - t < 60 for t in v)]
                 for k in stale:
                     del _rate_limits[k]
+                _rate_limit_last_cleanup = now
 
             if len(bucket) > rate_limit_rpm:
                 return Response(
@@ -282,8 +288,22 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
     class BasicAuthMiddleware(BaseHTTPMiddleware):
+        """HTTP Basic Auth middleware.
+
+        Endpoints in _UNPROTECTED_PREFIXES and _UNPROTECTED_EXACT bypass auth.
+        /api/media is intentionally unprotected to allow background polling
+        from the UI without requiring credentials on every request.
+        Note: DELETE /api/media/merged is NOT in the unprotected list and
+        therefore requires authentication when ui_password is set.
+        """
+
         _UNPROTECTED_PREFIXES = ("/health", "/hook", "/lingarr-hook", "/static/")
-        _UNPROTECTED_EXACT = {"/api/polls", "/api/queue", "/api/media", "/health"}
+        _UNPROTECTED_EXACT = {
+            "/api/polls",
+            "/api/queue",
+            "/api/media",  # Media list: intentionally unprotected for background polling
+            "/health",
+        }
 
         async def dispatch(self, request: Request, call_next):
             path = request.url.path
@@ -339,6 +359,7 @@ app = create_app()
 # so use a lazy getter. This caps total concurrent batch merge workers across
 # all requests, not just per-request.
 _batch_semaphore: asyncio.Semaphore | None = None
+_schedule_merge_lock: asyncio.Lock | None = None
 
 
 def _get_batch_semaphore() -> asyncio.Semaphore:
@@ -867,18 +888,27 @@ def _restart_scheduler() -> None:
 
 
 async def _execute_scheduled_merge() -> None:
-    """Target for the scheduled auto-merge job."""
-    settings = _get_schedule_merge_settings()
-    template = _load_app_settings().get("schedule_template", "") or "(default)"
-    logger.info(f"Scheduled auto-merge job started (template: {template})")
-    try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, _run_scan, settings)
-        logger.info(
-            f"Scheduled auto-merge complete: {result['merged']} merged, {result['polling']} polling"
-        )
-    except Exception as exc:
-        logger.error(f"Scheduled auto-merge failed: {exc}")
+    """Target for the scheduled auto-merge job.
+
+    Uses an asyncio.Lock to prevent overlapping executions if a scan
+    takes longer than the configured cron interval.
+    """
+    if _schedule_merge_lock is None or _schedule_merge_lock.locked():
+        logger.warning("Scheduled auto-merge skipped: previous run still in progress")
+        return
+    async with _schedule_merge_lock:
+        settings = _get_schedule_merge_settings()
+        template = _load_app_settings().get("schedule_template", "") or "(default)"
+        logger.info(f"Scheduled auto-merge job started (template: {template})")
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, _run_scan, settings)
+            logger.info(
+                f"Scheduled auto-merge complete: {result['merged']} merged, "
+                f"{result['polling']} polling"
+            )
+        except Exception as exc:
+            logger.error(f"Scheduled auto-merge failed: {exc}")
 
 
 # Include modular routers (imported at end to avoid circular imports)

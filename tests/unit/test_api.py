@@ -590,3 +590,82 @@ class TestApiSettingsValidation:
         )
         assert resp.status_code == 401
         get_settings.cache_clear()
+
+
+class TestApiGetSettings:
+    """Tests for GET /api/settings endpoint."""
+
+    def test_returns_200_with_settings(self, tmp_path, monkeypatch):
+        """GET /api/settings returns 200 with settings dict."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+        from starlette.testclient import TestClient
+
+        client = TestClient(api_module.app)
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "settings" in data
+        assert "notification_token" in data["settings"]
+        # Token is masked
+        assert data["settings"]["notification_token"] == ""
+        get_settings.cache_clear()
+
+    def test_token_masked_when_set(self, tmp_path, monkeypatch):
+        """notification_token is '***' when a token is configured."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "fr-pl")
+        monkeypatch.setenv("SUBTOOLS_NOTIFICATION_TOKEN", "secret123")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+        from starlette.testclient import TestClient
+
+        client = TestClient(api_module.app)
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["settings"]["notification_token"] == "***"
+        get_settings.cache_clear()
+
+
+class TestScheduleMergeLock:
+    """Tests for _execute_scheduled_merge overlap protection."""
+
+    def test_overlapping_call_returns_early(self):
+        """Second concurrent call returns immediately without error."""
+        import asyncio
+
+        from submerge import api as api_module
+
+        _lock = asyncio.Lock()
+
+        # Patch the module-level reference so the function uses our lock
+        api_module._schedule_merge_lock = _lock
+
+        async def _run_test():
+            # Acquire the lock to simulate a running scheduled merge
+            await _lock.acquire()
+            # Now call _execute_scheduled_merge — it should detect the lock
+            # and return early without blocking
+            await api_module._execute_scheduled_merge()
+            _lock.release()
+
+        asyncio.run(_run_test())
+        # If we get here without hanging, the test passes

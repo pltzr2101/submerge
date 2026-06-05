@@ -21,6 +21,11 @@ def send_notification(
 
     Compatible with ntfy.sh (Title/Tags headers) and generic webhooks
     (JSON body). No-op if notification_url is empty.
+
+    Security note: notification_url is passed directly to httpx without
+    URL validation. This is intentional for self-hosted deployments where
+    the operator controls the setting. Do not expose the settings UI to
+    untrusted users.
     """
     url = (settings.notification_url or "").strip()
     if not url:
