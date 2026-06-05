@@ -116,11 +116,25 @@ def _load_subtitle_file(path: Path) -> SSAFile:
             from charset_normalizer import from_path as _detect
 
             result = _detect(path).best()
-            if result is None:
-                raise InvalidSubtitleError(f"Could not detect encoding for {path.name}")
-            content = str(result)
-            subs = pysubs2.SSAFile.from_string(content)
-            return subs
+            if result is not None:
+                content = str(result)
+                logger.info(f"Detected encoding for {path.name}: {result.encoding}")
+                return pysubs2.SSAFile.from_string(content)
+            # charset_normalizer couldn't determine encoding → try EUC-KR/CP949 as
+            # last resort (common for Korean subtitle files from Asian sources)
+            logger.warning(f"Auto-detection failed for {path.name}, trying EUC-KR fallback...")
+            for fallback_enc in ("euc-kr", "cp949", "latin-1"):
+                try:
+                    content = path.read_bytes().decode(fallback_enc, errors="replace")
+                    subs = pysubs2.SSAFile.from_string(content)
+                    logger.warning(
+                        f"Loaded {path.name} with fallback encoding {fallback_enc} "
+                        f"(may contain replacement chars)"
+                    )
+                    return subs
+                except Exception:
+                    continue
+            raise InvalidSubtitleError(f"Could not detect encoding for {path.name}")
         except InvalidSubtitleError:
             raise
         except Exception as e:
