@@ -130,5 +130,5 @@ def api_history_export(ids: str = ""):
     return StreamingResponse(
         zip_buffer,
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=\"submerge_export.zip\""},
+        headers={"Content-Disposition": 'attachment; filename="submerge_export.zip"'},
     )

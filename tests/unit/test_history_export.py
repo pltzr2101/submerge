@@ -30,9 +30,7 @@ class TestGetHistoryEntriesByIds:
         config = tmp_path / "config"
         media.mkdir(exist_ok=True)
         config.mkdir(exist_ok=True)
-        s = get_settings_for_test(
-            pairs="de-ko", media_root=str(media), config_dir=str(config)
-        )
+        s = get_settings_for_test(pairs="de-ko", media_root=str(media), config_dir=str(config))
         init_db(s)
 
         v1 = media / "done.mkv"
@@ -55,9 +53,7 @@ class TestGetHistoryEntriesByIds:
         config = tmp_path / "config"
         media.mkdir(exist_ok=True)
         config.mkdir(exist_ok=True)
-        s = get_settings_for_test(
-            pairs="de-ko", media_root=str(media), config_dir=str(config)
-        )
+        s = get_settings_for_test(pairs="de-ko", media_root=str(media), config_dir=str(config))
         init_db(s)
 
         v = media / "test.mkv"

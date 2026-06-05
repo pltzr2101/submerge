@@ -182,9 +182,7 @@ def run_quality_checks(
             QualityWarning(
                 code="LOW_COVERAGE",
                 severity="warning",
-                message=(
-                    f"Only {coverage:.0%} of bottom events have a matching top event"
-                ),
+                message=(f"Only {coverage:.0%} of bottom events have a matching top event"),
             )
         )
 

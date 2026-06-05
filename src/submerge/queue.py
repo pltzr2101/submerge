@@ -638,14 +638,16 @@ def get_stats(settings: SubtoolsSettings | None = None) -> dict[str, Any]:
                     except (ValueError, TypeError):
                         pass
 
-            result.update({
-                "total_merged": total_merged,
-                "total_failed": total_failed,
-                "total_pending": total_pending,
-                "success_rate": round(success_rate, 4),
-                "avg_retries": round(avg_retries, 2),
-                "oldest_pending_hours": oldest_hours,
-            })
+            result.update(
+                {
+                    "total_merged": total_merged,
+                    "total_failed": total_failed,
+                    "total_pending": total_pending,
+                    "success_rate": round(success_rate, 4),
+                    "avg_retries": round(avg_retries, 2),
+                    "oldest_pending_hours": oldest_hours,
+                }
+            )
         finally:
             conn.close()
     except Exception as e:

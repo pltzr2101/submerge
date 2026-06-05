@@ -36,9 +36,7 @@ class TestGetStats:
         media = media_path or tmp_path / "media"
         config.mkdir(exist_ok=True)
         media.mkdir(exist_ok=True)
-        s = get_settings_for_test(
-            pairs="de-ko", media_root=str(media), config_dir=str(config)
-        )
+        s = get_settings_for_test(pairs="de-ko", media_root=str(media), config_dir=str(config))
         init_db(s)
         return s, media
 

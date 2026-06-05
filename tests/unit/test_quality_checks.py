@@ -47,12 +47,14 @@ class TestRunQualityChecksHappyPath:
 
     def test_no_warnings_for_balanced_events(self):
         """Balanced bottom/top events produce no warnings."""
-        subs = _make_ass_events([
-            (1000, 3000, "bottom"),
-            (5000, 7000, "bottom"),
-            (1000, 3000, "top"),
-            (5000, 7000, "top"),
-        ])
+        subs = _make_ass_events(
+            [
+                (1000, 3000, "bottom"),
+                (5000, 7000, "bottom"),
+                (1000, 3000, "top"),
+                (5000, 7000, "top"),
+            ]
+        )
         warnings = run_quality_checks(subs, "sub1.srt", "sub2.srt")
         assert warnings == []
 
@@ -62,14 +64,16 @@ class TestOverlapBottom:
 
     def test_overlap_warning_with_5_overlaps(self):
         """5 overlapping bottom events produce warning."""
-        subs = _make_ass_events([
-            (1000, 3000, "bottom"),  # overlap with next
-            (2000, 4000, "bottom"),  # overlap with next
-            (3000, 5000, "bottom"),  # overlap with next
-            (4000, 6000, "bottom"),  # overlap with next
-            (5000, 7000, "bottom"),  # <- 5 overlaps total
-            (0, 500, "top"),
-        ])
+        subs = _make_ass_events(
+            [
+                (1000, 3000, "bottom"),  # overlap with next
+                (2000, 4000, "bottom"),  # overlap with next
+                (3000, 5000, "bottom"),  # overlap with next
+                (4000, 6000, "bottom"),  # overlap with next
+                (5000, 7000, "bottom"),  # <- 5 overlaps total
+                (0, 500, "top"),
+            ]
+        )
         warnings = run_quality_checks(subs, "sub1.srt", "sub2.srt")
         assert len(warnings) >= 1
         overlap_w = next(w for w in warnings if w.code == "OVERLAP_BOTTOM")
@@ -78,13 +82,15 @@ class TestOverlapBottom:
 
     def test_no_overlap_warning_with_2_overlaps(self):
         """2 overlapping bottom events do NOT produce warning (< 3 threshold)."""
-        subs = _make_ass_events([
-            (1000, 3000, "bottom"),
-            (2000, 3000, "bottom"),  # overlap 1
-            (3500, 5000, "bottom"),
-            (4500, 6000, "bottom"),  # overlap 2
-            (0, 500, "top"),
-        ])
+        subs = _make_ass_events(
+            [
+                (1000, 3000, "bottom"),
+                (2000, 3000, "bottom"),  # overlap 1
+                (3500, 5000, "bottom"),
+                (4500, 6000, "bottom"),  # overlap 2
+                (0, 500, "top"),
+            ]
+        )
         warnings = run_quality_checks(subs, "sub1.srt", "sub2.srt")
         overlap_warnings = [w for w in warnings if w.code == "OVERLAP_BOTTOM"]
         assert len(overlap_warnings) == 0
@@ -130,9 +136,11 @@ class TestEmptyTrack:
 
     def test_empty_top_track(self):
         """Empty top track produces error severity."""
-        subs = _make_ass_events([
-            (1000, 2000, "bottom"),
-        ])
+        subs = _make_ass_events(
+            [
+                (1000, 2000, "bottom"),
+            ]
+        )
         warnings = run_quality_checks(subs, "sub1.srt", "sub2.srt")
         empty_w = next(w for w in warnings if w.code == "EMPTY_TRACK")
         assert empty_w.severity == "error"
