@@ -80,9 +80,7 @@ def extract_subtitles(
         (i for i, t in enumerate(tracks) if t.index == selected_track.index), None
     )
     if sub_relative_index is None:
-        raise SubtitleExtractionError(
-            f"Track #{selected_track.index} not found in stream list"
-        )
+        raise SubtitleExtractionError(f"Track #{selected_track.index} not found in stream list")
 
     cmd = [
         "ffmpeg",
