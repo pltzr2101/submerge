@@ -238,7 +238,7 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 
 ## Web UI
 
-Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282`:
+Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282` using the Inter font family (loaded via Google Fonts CDN on first visit):
 
 | Page | Description |
 |------|-------------|

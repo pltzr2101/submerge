@@ -43,7 +43,7 @@
 <!-- Batch action toolbar -->
 <div id="batchToolbar" class="batch-toolbar hidden">
     <span id="batchCount">0 selected</span>
-    <select id="batchTemplate" class="filter-select" style="margin: 0 8px;">
+    <select id="batchTemplate" class="filter-select batch-select">
         <option value="">Effective Settings</option>
     </select>
     <button id="btnBatchReMerge" class="btn btn-success" onclick="executeBatchReMerge()">Re-merge selected</button>
@@ -71,12 +71,12 @@
 
 <!-- Subtitle Preview Modal -->
 <div id="previewModal" class="modal-overlay hidden" onclick="if(event.target===this)document.getElementById('previewModal').classList.add('hidden')">
-  <div class="modal" style="max-width:700px;max-height:85vh;display:flex;flex-direction:column">
+  <div class="modal modal-lg" style="max-height:85vh;display:flex;flex-direction:column">
     <div class="modal-header">
       <h3 id="previewModalTitle">Subtitle Preview</h3>
       <button class="modal-close" onclick="document.getElementById('previewModal').classList.add('hidden')">&times;</button>
     </div>
-    <div id="previewModalBody" class="modal-body" style="overflow-y:auto;flex:1;padding:12px"></div>
+    <div id="previewModalBody" class="modal-body"></div>
   </div>
 </div>
 
