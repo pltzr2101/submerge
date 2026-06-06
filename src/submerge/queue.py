@@ -477,6 +477,23 @@ def process_queue(
     }
 
 
+def _normalize_timestamp(ts: str | None) -> str | None:
+    """Convert SQLite datetime to strict ISO 8601 for browser compat.
+
+    SQLite stores timestamps as ``2026-06-06 08:00:00`` (space, no TZ).
+    Safari / Firefox reject ``new Date()`` with that format; converting the
+    space to ``T`` and appending ``Z`` produces a valid UTC timestamp that
+    all browsers understand.
+    """
+    if ts is None or ts == "":
+        return None
+    # Already ISO?  (contains 'T' and ends with 'Z' or has offset)
+    if "T" in ts and (ts.endswith("Z") or "+" in ts[10:] or ts.count("-") > 2):
+        return ts
+    # SQLite format: "YYYY-MM-DD HH:MM:SS"
+    return ts.replace(" ", "T") + "Z"
+
+
 def get_history(
     limit: int = 200,
     settings: SubtoolsSettings | None = None,
@@ -511,8 +528,8 @@ def get_history(
                 "reason": row["error_msg"],
                 "duration_ms": row["duration_ms"],
                 "output_files": json.loads(row["output_files"]) if row["output_files"] else [],
-                "created_at": row["first_seen"],
-                "updated_at": row["last_checked"],
+                "created_at": _normalize_timestamp(row["first_seen"]),
+                "updated_at": _normalize_timestamp(row["last_checked"]),
             }
             for row in rows
         ]

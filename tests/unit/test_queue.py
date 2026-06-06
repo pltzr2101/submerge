@@ -8,6 +8,7 @@ import pytest
 
 from submerge.config import get_settings_for_test
 from submerge.queue import (
+    _normalize_timestamp,
     dequeue,
     enqueue,
     get_all_entries,
@@ -276,3 +277,32 @@ class TestProcessQueueBackoff:
         assert all_entries[0]["status"] == "pending"
         # attempt_count stays unchanged because backoff skipped the re-enqueue
         assert all_entries[0]["attempt_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Timestamp normalization (SQLite → ISO 8601 for browser compat)
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeTimestamp:
+    """Tests for _normalize_timestamp()."""
+
+    def test_sqlite_format_converted(self):
+        """SQLite 'YYYY-MM-DD HH:MM:SS' → ISO 8601 with T and Z."""
+        assert _normalize_timestamp("2026-06-06 08:00:00") == "2026-06-06T08:00:00Z"
+
+    def test_already_iso_untouched(self):
+        """Already valid ISO 8601 is returned unchanged."""
+        assert _normalize_timestamp("2026-06-06T08:00:00Z") == "2026-06-06T08:00:00Z"
+
+    def test_already_iso_with_offset_untouched(self):
+        """ISO with +HH:MM offset is returned unchanged."""
+        assert _normalize_timestamp("2026-06-06T08:00:00+02:00") == "2026-06-06T08:00:00+02:00"
+
+    def test_none_returns_none(self):
+        """None → None."""
+        assert _normalize_timestamp(None) is None
+
+    def test_empty_string_returns_none(self):
+        """Empty string → None."""
+        assert _normalize_timestamp("") is None

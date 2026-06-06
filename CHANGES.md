@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`deduplicate_near_dupes`). Bottom events with ≥200 ms mutual overlap
   and ≥85 % text similarity (via `difflib`) are collapsed to a single
   event, preventing duplicate subtitles from two same-language sources.
+- **"vor NaN Tagen"** in merge history fixed. SQLite timestamps
+  (``2026-06-06 08:00:00``) are now normalized to ISO 8601
+  (``2026-06-06T08:00:00Z``) both in the backend API and in the
+  frontend ``formatRelativeDate`` function, preventing ``Invalid Date``
+  in Safari and Firefox.
 
 ## [2.3.0] - 2026-06-05
 
