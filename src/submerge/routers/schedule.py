@@ -49,9 +49,11 @@ def _get_schedule_merge_settings():
 def start_scheduler(settings, app_settings=None):
     """Start the APScheduler with the configured auto-merge schedule.
 
+    Initializes ``_schedule_merge_lock`` if not already set.
+
     If apscheduler is not installed, logs a warning and continues.
     """
-    global _scheduler
+    global _scheduler, _schedule_merge_lock
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
@@ -81,6 +83,11 @@ def start_scheduler(settings, app_settings=None):
         replace_existing=True,
     )
     _scheduler.start()
+
+    # Initialize the overlap-prevention lock if not already set.
+    if _schedule_merge_lock is None:
+        _schedule_merge_lock = asyncio.Lock()
+
     logger.info(f"Auto-merge scheduler started — daily at {schedule_time}")
 
 
@@ -106,24 +113,29 @@ async def _execute_scheduled_merge():
     Uses an asyncio.Lock to prevent overlapping executions if a scan
     takes longer than the configured cron interval.
     """
-    if _schedule_merge_lock is None or not _schedule_merge_lock.locked():
-        async with _schedule_merge_lock:
-            from ..routers.scanner import _run_scan
+    if _schedule_merge_lock is None:
+        logger.warning("Scheduled auto-merge skipped: scheduler not initialized")
+        return
 
-            settings = _get_schedule_merge_settings()
-            template = _load_app_settings().get("schedule_template", "") or "(default)"
-            logger.info(f"Scheduled auto-merge job started (template: {template})")
-            try:
-                loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(None, _run_scan, settings)
-                logger.info(
-                    f"Scheduled auto-merge complete: {result['merged']} merged, "
-                    f"{result['polling']} polling"
-                )
-            except Exception as exc:
-                logger.error(f"Scheduled auto-merge failed: {exc}")
-    else:
+    if _schedule_merge_lock.locked():
         logger.warning("Scheduled auto-merge skipped: previous run still in progress")
+        return
+
+    async with _schedule_merge_lock:
+        from ..routers.scanner import _run_scan
+
+        settings = _get_schedule_merge_settings()
+        template = _load_app_settings().get("schedule_template", "") or "(default)"
+        logger.info(f"Scheduled auto-merge job started (template: {template})")
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, _run_scan, settings)
+            logger.info(
+                f"Scheduled auto-merge complete: {result['merged']} merged, "
+                f"{result['polling']} polling"
+            )
+        except Exception as exc:
+            logger.error(f"Scheduled auto-merge failed: {exc}")
 
 
 # ---------------------------------------------------------------------------

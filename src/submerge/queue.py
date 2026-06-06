@@ -655,5 +655,6 @@ def get_stats(settings: SubtoolsSettings | None = None) -> dict[str, Any]:
     return result
 
 
-# Re-export worker symbols for backward-compat (api.py imports from queue)
+# Backward-compat re-exports from worker.py — remove after one release cycle
+# (direct imports from submerge.worker are preferred)
 from .worker import start_queue_worker, stop_queue_worker  # noqa: E402, F401

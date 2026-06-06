@@ -367,7 +367,6 @@ app = create_app()
 # so use a lazy getter. This caps total concurrent batch merge workers across
 # all requests, not just per-request.
 _batch_semaphore: asyncio.Semaphore | None = None
-_schedule_merge_lock: asyncio.Lock | None = None
 
 
 def _get_batch_semaphore() -> asyncio.Semaphore:
