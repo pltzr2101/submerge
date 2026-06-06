@@ -46,7 +46,7 @@ body {
     justify-content: space-between;
     padding: 0 24px;
     height: 56px;
-    background: var(--bg-secondary);
+    background: rgba(22, 27, 34, 0.85);
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
@@ -147,6 +147,17 @@ body {
 .btn-accent:hover { background: var(--accent-hover); }
 
 .btn-sm { height: 26px; padding: 0 10px; font-size: 0.8rem; }
+
+.btn-outline {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-muted);
+}
+.btn-outline:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-muted);
+    color: var(--text);
+}
 
 /* Badge */
 .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
@@ -411,7 +422,7 @@ legend {
     display: flex; flex-direction: column;
 }
 .modal-sm { max-width: 400px; }
-.modal-lg { max-width: 700px; }
+.modal-lg { max-width: 700px; max-height: 85vh; }
 
 .modal-header {
     display: flex; align-items: center;
