@@ -27,6 +27,7 @@ Automatic bilingual subtitle merge service for ARR stacks. Combines two single-l
 - **Web UI**: media overview dashboard, manual merge/sync buttons, queue management, live SSE log stream
 - **Style presets** — 3 built-in (Standard, Cinema Dark, Bright) + create and save your own via the UI
 - **Post-merge quality checks** — automatic detection of overlapping tracks, line count imbalances, low coverage, and empty tracks
+- **Bottom-dedup by top-coverage** — automatically removes near-duplicate bottom events when two same-language sources are merged
 - **Statistics dashboard** — merge success rate, pending/failed counts, average retries on the home page
 - **Batch export** — download output files from multiple history entries as a ZIP archive
 - **Basic Auth + rate limiting** for Web UI protection

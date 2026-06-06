@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-06-06
+
+### Added
+
+- **Bottom-dedup by top-coverage** (`_deduplicate_bottom_by_top_coverage` in
+  `merge.py`): When two same-language subtitle sources are merged as `sub1`,
+  near-duplicate bottom events (minimal timing variance) that cover the same
+  top event are automatically removed. The bottom event with the greatest
+  temporal overlap per top event is kept. Legitimate sequential 2-liners
+  (mutual overlap ≤ 0 ms) are never affected.
+
+### Fixed
+
+- `_execute_scheduled_merge()` lock guard no longer crashes with `NoneType`
+  when `_schedule_merge_lock` is uninitialised (regression from v2.3.0
+  scheduler refactor).
+
 ## [2.3.0] - 2026-06-05
 
 ### Added
@@ -157,6 +174,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FastAPI app uses `lifespan` context manager instead of deprecated `@app.on_event`
 - `/health` response now returns `configured` and `pairs` fields
 
+[2.3.1]: https://github.com/pltzr2101/submerge/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/pltzr2101/submerge/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/pltzr2101/submerge/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/pltzr2101/submerge/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/pltzr2101/submerge/compare/v2.0.2...v2.0.3

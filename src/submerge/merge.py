@@ -221,6 +221,84 @@ def _clean_event(event, style_name: str, strip_newlines: bool = False):
     return ev
 
 
+def _deduplicate_bottom_by_top_coverage(
+    events: list,
+) -> tuple[list, int]:
+    """Remove duplicate bottom-track events caused by two same-language sources.
+
+    A bottom event is considered a duplicate when:
+    1. Two or more bottom events overlap the same top event temporally, AND
+    2. The bottom events also overlap each other mutually (mutual_overlap > 0 ms).
+
+    Condition 2 prevents removal of legitimate two-liner cases where a single
+    long top event is correctly covered by two sequential bottom events.
+
+    For each group of mutual-overlapping bottom candidates per top event,
+    the one with the greatest temporal overlap with the top event is kept;
+    all others are marked for removal.
+
+    Non-bottom events are never modified.
+
+    Args:
+        events: List of SSAEvent objects (mixed styles).
+
+    Returns:
+        Tuple of (cleaned event list, number of removed events).
+    """
+    top_events = [e for e in events if e.style == "top"]
+    bottom_events = [e for e in events if e.style == "bottom"]
+    other_events = [e for e in events if e.style not in ("top", "bottom")]
+
+    to_remove: set[int] = set()  # indices into bottom_events
+
+    for top in top_events:
+        # Find all bottom events overlapping this top event
+        candidates_idx = [
+            i for i, b in enumerate(bottom_events) if b.start < top.end and b.end > top.start
+        ]
+        if len(candidates_idx) <= 1:
+            continue
+
+        # Group candidates that mutually overlap each other
+        # (this protects legitimate sequential 2-liners)
+        groups: list[list[int]] = []
+        used: set[int] = set()
+        for i, idx_a in enumerate(candidates_idx):
+            if idx_a in used:
+                continue
+            group = [idx_a]
+            used.add(idx_a)
+            a = bottom_events[idx_a]
+            for idx_b in candidates_idx[i + 1 :]:
+                if idx_b in used:
+                    continue
+                b = bottom_events[idx_b]
+                mutual = min(a.end, b.end) - max(a.start, b.start)
+                if mutual > 0:
+                    group.append(idx_b)
+                    used.add(idx_b)
+            if len(group) > 1:
+                groups.append(group)
+
+        # Per group: keep the one with the largest overlap with top, remove rest
+        for group in groups:
+            best_idx = max(
+                group,
+                key=lambda i: min(bottom_events[i].end, top.end)
+                - max(bottom_events[i].start, top.start),
+            )
+            for idx in group:
+                if idx != best_idx:
+                    to_remove.add(idx)
+
+    kept_bottom = [b for i, b in enumerate(bottom_events) if i not in to_remove]
+    result = sorted(
+        other_events + top_events + kept_bottom,
+        key=lambda e: e.start,
+    )
+    return result, len(to_remove)
+
+
 def _load_subtitle_file(path: Path) -> SSAFile:
     """Load a subtitle file with encoding handling."""
     try:
@@ -429,6 +507,14 @@ def merge_bilingual(
     if removed:
         logger.info(f"Deduplication removed {removed} duplicate event(s)")
     merged.events = unique_events
+
+    # Deduplicate bottom events caused by two same-language source tracks
+    merged.events, near_dup_removed = _deduplicate_bottom_by_top_coverage(merged.events)
+    if near_dup_removed:
+        logger.info(
+            f"Bottom-dedup removed {near_dup_removed} duplicate bottom event(s) "
+            f"(same-language source detected)"
+        )
 
     # Run post-merge quality checks
     sub1_name = sub1_path.name
