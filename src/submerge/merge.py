@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bisect
 import copy
+import difflib
 import logging
 import re
 from dataclasses import dataclass
@@ -299,6 +300,78 @@ def _deduplicate_bottom_by_top_coverage(
     return result, len(to_remove)
 
 
+def deduplicate_near_dupes(events: list) -> list:
+    """Remove near-duplicate bottom events from two same-language source tracks.
+
+    Two bottom events are near-duplicates when they:
+    1. Overlap each other by at least 200 ms, AND
+    2. Have identical text or are semantically similar
+       (``difflib.SequenceMatcher.ratio() >= 0.85``).
+
+    When a pair is detected the event that has the greater temporal overlap
+    with the best-matching top event is kept; ties are broken in favour of
+    the earlier event (``b1``).  Non-bottom events are never modified.
+
+    Args:
+        events: List of SSAEvent objects (mixed styles).
+
+    Returns:
+        Filtered event list sorted by start time.
+    """
+    top_events = [e for e in events if e.style == "top"]
+    bottom_events = [e for e in events if e.style == "bottom"]
+    other_events = [e for e in events if e.style not in ("top", "bottom")]
+
+    bottom_events.sort(key=lambda e: e.start)
+    to_remove: set[int] = set()
+
+    for i in range(len(bottom_events)):
+        if i in to_remove:
+            continue
+        b1 = bottom_events[i]
+        for j in range(i + 1, len(bottom_events)):
+            if j in to_remove:
+                continue
+            b2 = bottom_events[j]
+
+            # Condition 1: at least 200 ms mutual overlap
+            overlap = min(b1.end, b2.end) - max(b1.start, b2.start)
+            if overlap < 200:
+                continue
+
+            # Condition 2: identical or semantically similar text
+            text1 = b1.text.strip()
+            text2 = b2.text.strip()
+            if text1 != text2:
+                ratio = difflib.SequenceMatcher(None, text1, text2).ratio()
+                if ratio < 0.85:
+                    continue
+
+            # Tiebreaker: larger overlap with best-matching top event
+            overlap1 = _best_top_overlap(b1, top_events)
+            overlap2 = _best_top_overlap(b2, top_events)
+
+            if overlap1 >= overlap2:
+                to_remove.add(j)
+            else:
+                to_remove.add(i)
+                break  # b1 removed — skip remaining comparisons for this b1
+
+    kept_bottom = [b for i, b in enumerate(bottom_events) if i not in to_remove]
+    return sorted(other_events + top_events + kept_bottom, key=lambda e: e.start)
+
+
+def _best_top_overlap(bottom_event, top_events: list) -> int:
+    """Return the maximum temporal overlap (ms) with any top event."""
+    best = 0
+    b_start, b_end = bottom_event.start, bottom_event.end
+    for t in top_events:
+        overlap = min(b_end, t.end) - max(b_start, t.start)
+        if overlap > best:
+            best = overlap
+    return best
+
+
 def _load_subtitle_file(path: Path) -> SSAFile:
     """Load a subtitle file with encoding handling."""
     try:
@@ -507,6 +580,9 @@ def merge_bilingual(
     if removed:
         logger.info(f"Deduplication removed {removed} duplicate event(s)")
     merged.events = unique_events
+
+    # Deduplicate near-duplicate bottom events (same timing, similar text)
+    merged.events = deduplicate_near_dupes(merged.events)
 
     # Deduplicate bottom events caused by two same-language source tracks
     merged.events, near_dup_removed = _deduplicate_bottom_by_top_coverage(merged.events)

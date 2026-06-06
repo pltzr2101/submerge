@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `_execute_scheduled_merge()` lock guard no longer crashes with `NoneType`
   when `_schedule_merge_lock` is uninitialised (regression from v2.3.0
   scheduler refactor).
+- **Near-duplicate bottom-event deduplication** added to merge pipeline
+  (`deduplicate_near_dupes`). Bottom events with ≥200 ms mutual overlap
+  and ≥85 % text similarity (via `difflib`) are collapsed to a single
+  event, preventing duplicate subtitles from two same-language sources.
 
 ## [2.3.0] - 2026-06-05
 

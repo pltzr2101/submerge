@@ -8,6 +8,7 @@ from submerge.merge import (
     InvalidSubtitleError,
     MergeConfig,
     QualityWarning,
+    deduplicate_near_dupes,
     merge_bilingual,
     run_quality_checks,
 )
@@ -220,3 +221,93 @@ class TestMergeBilingualIntegration:
         output = tmp_path / "output.ass"
         with pytest.raises(InvalidSubtitleError):
             merge_bilingual(empty_srt, sample_srt_pl, output)
+
+
+# =============================================================================
+# Near-duplicate bottom-event dedup
+# =============================================================================
+
+
+def _make_ev(start: int, end: int, style: str, text: str = ""):
+    """Create a minimal SSAEvent for dedup testing."""
+    import pysubs2  # noqa: F811
+
+    ev = pysubs2.SSAEvent()
+    ev.start = start
+    ev.end = end
+    ev.style = style
+    ev.text = text
+    ev.plaintext = text
+    return ev
+
+
+class TestDeduplicateNearDupes:
+    """Tests for deduplicate_near_dupes()."""
+
+    def test_overlap_and_similar_text_removes_one(self):
+        """Two bottom events with 200ms+ overlap and ratio >= 0.85 → one removed."""
+        events = [
+            _make_ev(1000, 3000, "bottom", "Wo ist sie?"),
+            _make_ev(1000, 2900, "bottom", "Wo ist sie?"),
+            _make_ev(1000, 3000, "top", "Where is she?"),
+        ]
+        result = deduplicate_near_dupes(events)
+        n_bottom = sum(1 for e in result if e.style == "bottom")
+        assert n_bottom == 1
+
+    def test_similar_but_not_identical_text_removes_one(self):
+        """Near-identical text (ratio >= 0.85) + overlap → one removed."""
+        events = [
+            _make_ev(1000, 3000, "bottom", "Wo ist sie hin?"),
+            _make_ev(1050, 3050, "bottom", "Wo ist sie hin"),
+            _make_ev(1000, 3000, "top", "Where is she?"),
+        ]
+        result = deduplicate_near_dupes(events)
+        n_bottom = sum(1 for e in result if e.style == "bottom")
+        assert n_bottom == 1
+
+    def test_identical_text_no_overlap_keeps_both(self):
+        """Identical text but < 200ms overlap → both kept."""
+        events = [
+            _make_ev(1000, 2000, "bottom", "Wo ist sie?"),
+            _make_ev(2100, 3000, "bottom", "Wo ist sie?"),  # overlap = 0
+            _make_ev(1000, 3000, "top", "Where is she?"),
+        ]
+        result = deduplicate_near_dupes(events)
+        n_bottom = sum(1 for e in result if e.style == "bottom")
+        assert n_bottom == 2
+
+    def test_completely_different_text_keeps_both(self):
+        """Large overlap but completely different text → both kept."""
+        events = [
+            _make_ev(1000, 3000, "bottom", "Wo ist sie?"),
+            _make_ev(1200, 3200, "bottom", "Was machen wir heute?"),
+            _make_ev(1000, 3000, "top", "Where is she?"),
+        ]
+        result = deduplicate_near_dupes(events)
+        n_bottom = sum(1 for e in result if e.style == "bottom")
+        assert n_bottom == 2
+
+    def test_top_events_untouched(self):
+        """Top events are never candidates for removal."""
+        events = [
+            _make_ev(1000, 3000, "top", "Line 1"),
+            _make_ev(2000, 4000, "top", "Line 2"),
+        ]
+        result = deduplicate_near_dupes(events)
+        assert len(result) == 2
+
+    def test_winner_has_better_top_overlap(self):
+        """Tiebreaker: event with larger top overlap survives."""
+        events = [
+            _make_ev(1000, 3000, "bottom", "same text"),  # 2000ms top overlap
+            _make_ev(2500, 3500, "bottom", "same text"),  # 500ms top overlap
+            _make_ev(1000, 3000, "top", "Top line"),
+        ]
+        result = deduplicate_near_dupes(events)
+        n_bottom = sum(1 for e in result if e.style == "bottom")
+        assert n_bottom == 1
+        kept = [e for e in result if e.style == "bottom"][0]
+        # The earlier event (1000-3000) has larger top overlap (2000 > 500)
+        assert kept.start == 1000
+        assert kept.end == 3000
