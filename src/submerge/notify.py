@@ -27,10 +27,8 @@ def send_notification(
     prefer :func:`send_notification_async` to avoid blocking the
     event loop.
 
-    Security note: notification_url is passed directly to httpx without
-    URL validation. This is intentional for self-hosted deployments where
-    the operator controls the setting. Do not expose the settings UI to
-    untrusted users.
+    Security note: Only http/https URLs are accepted. URLs with other schemes
+    (e.g. file://, ftp://) are silently rejected and logged as a warning.
     """
     _send_notification_sync(title, message, settings, tags)
 
