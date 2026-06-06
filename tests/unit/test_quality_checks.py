@@ -146,6 +146,28 @@ class TestEmptyTrack:
         assert empty_w.severity == "error"
         assert "sub2.srt" in empty_w.message
 
+    def test_empty_bottom_track(self):
+        """Empty bottom track produces error severity with sub1_name."""
+        subs = _make_ass_events(
+            [
+                (1000, 2000, "top"),
+            ]
+        )
+        warnings = run_quality_checks(subs, "sub1.srt", "sub2.srt")
+        empty_w = next(w for w in warnings if w.code == "EMPTY_TRACK")
+        assert empty_w.severity == "error"
+        assert "sub1.srt" in empty_w.message
+
+    def test_both_tracks_empty(self):
+        """Both tracks empty produce two independent EMPTY_TRACK warnings."""
+        subs = _make_ass_events([])
+        warnings = run_quality_checks(subs, "sub1.srt", "sub2.srt")
+        empty_warnings = [w for w in warnings if w.code == "EMPTY_TRACK"]
+        assert len(empty_warnings) == 2
+        codes = {w.message for w in empty_warnings}
+        assert "Track 'sub1.srt' contributed 0 events to merged output" in codes
+        assert "Track 'sub2.srt' contributed 0 events to merged output" in codes
+
 
 class TestCombined:
     """Combined warnings."""

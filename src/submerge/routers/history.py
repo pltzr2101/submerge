@@ -85,9 +85,8 @@ def api_history_export(ids: str = ""):
             detail={"status": "error", "message": "No exportable files found for given IDs"},
         )
 
-    # Collect files, validate paths, skip invalid
-    zip_files: list[tuple[str, Path]] = []
-    seen_names: dict[str, int] = {}
+    # Collect all (arcname, file_path) pairs; resolve collisions after
+    raw_files: list[tuple[str, Path]] = []
     for _idx, entry in enumerate(entries):
         for file_path_str in entry.get("output_files", []):
             try:
@@ -104,15 +103,22 @@ def api_history_export(ids: str = ""):
                     f"Export: skipping missing file for entry {entry['id']}: {file_path_str}"
                 )
                 continue
-            base_name = Path(file_path_str).name
-            # Handle name collisions with index prefix
-            if base_name in seen_names:
-                seen_names[base_name] += 1
-                arcname = f"{seen_names[base_name]}_{base_name}"
-            else:
-                seen_names[base_name] = 1
-                arcname = base_name
-            zip_files.append((arcname, file_path))
+            raw_files.append((Path(file_path_str).name, file_path))
+
+    # Resolve name collisions: group by base name, prefix with 1_, 2_, ... only when collision
+    name_counts: dict[str, int] = {}
+    for base_name, _ in raw_files:
+        name_counts[base_name] = name_counts.get(base_name, 0) + 1
+
+    name_index: dict[str, int] = {}
+    zip_files: list[tuple[str, Path]] = []
+    for base_name, file_path in raw_files:
+        if name_counts[base_name] > 1:
+            name_index[base_name] = name_index.get(base_name, 0) + 1
+            arcname = f"{name_index[base_name]}_{base_name}"
+        else:
+            arcname = base_name
+        zip_files.append((arcname, file_path))
 
     if not zip_files:
         raise HTTPException(

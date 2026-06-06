@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 
 import httpx
 
@@ -51,6 +52,10 @@ async def send_notification_async(
     url = (settings.notification_url or "").strip()
     if not url:
         return
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        logger.warning(f"Rejected notification URL with disallowed scheme: {parsed.scheme!r}")
+        return
     token = (settings.notification_token or "").strip()
     headers: dict[str, str] = {"Title": title}
     if token:
@@ -75,6 +80,10 @@ def _send_notification_sync(
     """Internal synchronous implementation (used by CLI / threads)."""
     url = (settings.notification_url or "").strip()
     if not url:
+        return
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        logger.warning(f"Rejected notification URL with disallowed scheme: {parsed.scheme!r}")
         return
     token = (settings.notification_token or "").strip()
     headers: dict[str, str] = {"Title": title}

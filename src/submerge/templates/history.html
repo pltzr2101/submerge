@@ -173,7 +173,13 @@ function updateExportBtn() {
 function exportSelected() {
     const ids = Array.from(document.querySelectorAll('.hist-chk:checked')).map(cb => cb.dataset.id);
     if (ids.length === 0) return;
-    window.location.href = '/api/history/export?ids=' + ids.join(',');
+    const url = '/api/history/export?ids=' + ids.join(',');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'submerge_export.zip';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 }
 </script>
 {% endblock %}

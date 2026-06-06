@@ -106,6 +106,7 @@ def run_quality_checks(
     top_events = [e for e in merged.events if e.style == "top"]
 
     # --- Check D: EMPTY_TRACK ---
+    empty_found = False
     if len(bottom_events) == 0:
         warnings.append(
             QualityWarning(
@@ -114,6 +115,7 @@ def run_quality_checks(
                 message=f"Track '{sub1_name}' contributed 0 events to merged output",
             )
         )
+        empty_found = True
     if len(top_events) == 0:
         warnings.append(
             QualityWarning(
@@ -122,8 +124,9 @@ def run_quality_checks(
                 message=f"Track '{sub2_name}' contributed 0 events to merged output",
             )
         )
-    if warnings:
-        return warnings  # early return — ratio/coverage meaningless with empty track
+        empty_found = True
+    if empty_found:
+        return warnings  # ratio/coverage meaningless with empty track
 
     # --- Check A: OVERLAP_BOTTOM ---
     bottom_sorted = sorted(bottom_events, key=lambda e: e.start)
