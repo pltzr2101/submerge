@@ -7,7 +7,6 @@ import base64
 import hmac
 import json
 import logging
-import re
 import shutil
 import sys
 import threading
@@ -202,8 +201,6 @@ def create_app() -> FastAPI:
         # Module-level semaphore must be created inside the event loop.
         global _batch_semaphore
         _batch_semaphore = asyncio.Semaphore(4)
-        global _schedule_merge_lock
-        _schedule_merge_lock = asyncio.Lock()
         # Ensure locks directory exists
         locks_dir = Path(settings.config_dir) / "locks"
         locks_dir.mkdir(parents=True, exist_ok=True)
@@ -211,6 +208,17 @@ def create_app() -> FastAPI:
         logger.info("Queue worker started")
 
         # ---- Auto-merge scheduler ----
+        # The lock must be initialised inside the event loop
+        import submerge.routers.schedule as _sched_mod
+
+        from .routers.schedule import (
+            _get_schedule_merge_settings,
+            start_scheduler,
+            stop_scheduler,
+        )
+
+        _sched_mod._schedule_merge_lock = asyncio.Lock()
+
         app_settings = _load_app_settings()
         if app_settings.get("auto_merge_enabled") and app_settings.get("run_on_startup"):
 
@@ -230,12 +238,12 @@ def create_app() -> FastAPI:
 
             asyncio.create_task(_startup_merge())
 
-        _start_scheduler(settings, app_settings=app_settings)
+        start_scheduler(settings, app_settings=app_settings)
         # ---------------------------------
 
         yield
 
-        _stop_scheduler()
+        stop_scheduler()
         stop_queue_worker()
         logger.info("Queue worker stopped")
 
@@ -423,36 +431,6 @@ def validate_path(path_str: str, param_name: str, check_media_root: bool = False
             status_code=400,
             detail={"status": "error", "message": f"Invalid {param_name} path"},
         ) from e
-
-
-def _find_video_for_subtitle(sub_path: Path) -> Path | None:
-    """Find the video file corresponding to a subtitle file.
-
-    Peels language-code suffixes from the filename stem until a
-    matching video file is found. Handles multi-dot filenames like
-    'Movie.2024.BluRay.de.hi.srt'.
-
-    Args:
-        sub_path: Path to subtitle file
-
-    Returns:
-        Path to video file or None
-    """
-    video_exts = (".mkv", ".mp4", ".avi", ".m4v")
-    stem = sub_path.stem
-
-    # Keep peeling suffixes until find a video or no dots left.
-    # Check each stem, including the final dot-free form, inside the loop.
-    while True:
-        for ext in video_exts:
-            candidate = sub_path.parent / (stem + ext)
-            if candidate.exists():
-                return candidate
-        if "." not in stem:
-            break
-        stem = stem.rsplit(".", 1)[0]
-
-    return None
 
 
 # =============================================================================
@@ -667,82 +645,6 @@ async def ui_history(request: Request):
     return templates.TemplateResponse(request, "history.html", {})
 
 
-_DEFAULT_PRESETS = {
-    "Standard": {
-        "bottom_fontsize": 20,
-        "bottom_color": "#FFFFFF",
-        "bottom_outline_color": "#000000",
-        "bottom_outline": 2,
-        "bottom_shadow": 1,
-        "bottom_bold": False,
-        "bottom_margin_v": 20,
-        "bottom_margin_h": 20,
-        "bottom_spacing": 0,
-        "font_bottom": "",
-        "top_fontsize": 18,
-        "top_color": "#FFD700",
-        "top_outline_color": "#000000",
-        "top_outline": 2,
-        "top_shadow": 1,
-        "top_bold": False,
-        "top_margin_v": 20,
-        "top_margin_h": 20,
-        "top_spacing": 0,
-        "font_top": "Noto Sans CJK KR",
-        "layout": "top-bottom",
-        "stacked_gap": 40,
-    },
-    "Cinema Dark": {
-        "bottom_fontsize": 22,
-        "bottom_color": "#FFFFFF",
-        "bottom_outline_color": "#000000",
-        "bottom_outline": 3,
-        "bottom_shadow": 2,
-        "bottom_bold": False,
-        "bottom_margin_v": 40,
-        "bottom_margin_h": 30,
-        "bottom_spacing": 0,
-        "font_bottom": "",
-        "top_fontsize": 16,
-        "top_color": "#FFD700",
-        "top_outline_color": "#000000",
-        "top_outline": 3,
-        "top_shadow": 2,
-        "top_bold": False,
-        "top_margin_v": 10,
-        "top_margin_h": 30,
-        "top_spacing": 0,
-        "font_top": "Noto Sans CJK KR",
-        "layout": "top-bottom",
-        "stacked_gap": 10,
-    },
-    "Bright": {
-        "bottom_fontsize": 18,
-        "bottom_color": "#FFFF00",
-        "bottom_outline_color": "#0000FF",
-        "bottom_outline": 1,
-        "bottom_shadow": 0,
-        "bottom_bold": True,
-        "bottom_margin_v": 20,
-        "bottom_margin_h": 15,
-        "bottom_spacing": 0,
-        "font_bottom": "",
-        "top_fontsize": 16,
-        "top_color": "#00FF00",
-        "top_outline_color": "#0000FF",
-        "top_outline": 1,
-        "top_shadow": 0,
-        "top_bold": True,
-        "top_margin_v": 10,
-        "top_margin_h": 15,
-        "top_spacing": 0,
-        "font_top": "Noto Sans CJK KR",
-        "layout": "stacked",
-        "stacked_gap": 12,
-    },
-}
-
-
 def _get_config_dir() -> Path:
     """Return the config directory for submerge."""
     settings = _get_effective_settings()
@@ -759,7 +661,9 @@ def _get_settings_path() -> Path:
 
 
 def _load_presets() -> dict:
-    presets = dict(_DEFAULT_PRESETS)
+    from .presets import get_default_presets
+
+    presets = get_default_presets()
     path = _get_presets_path()
     lock_path = path.with_suffix(path.suffix + ".lock")
 
@@ -774,6 +678,8 @@ def _load_presets() -> dict:
 
 
 def _save_custom_presets(presets: dict) -> None:
+    from .presets import _DEFAULT_PRESETS
+
     path = _get_presets_path()
     lock_path = path.with_suffix(path.suffix + ".lock")
     # Only save non-default presets
@@ -804,113 +710,6 @@ def _save_app_settings(data: dict[str, Any]) -> None:
         path.write_text(json.dumps(data, indent=2))
 
 
-# ---------------------------------------------------------------
-# Scheduler for auto-merge jobs
-# ---------------------------------------------------------------
-
-_scheduler: object | None = None
-_SCHEDULE_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-
-
-def _get_schedule_defaults() -> dict[str, Any]:
-    """Build schedule settings dict from app settings with defaults."""
-    app = _load_app_settings()
-    return {
-        "auto_merge_enabled": app.get("auto_merge_enabled", False),
-        "schedule_time": app.get("schedule_time", "03:00"),
-        "run_on_startup": app.get("run_on_startup", False),
-        "schedule_template": app.get("schedule_template", ""),
-    }
-
-
-def _get_schedule_merge_settings() -> SubtoolsSettings:
-    """Build SubtoolsSettings for an auto-merge run using the configured template."""
-    base = _get_effective_settings()
-    defaults = _get_schedule_defaults()
-    template = defaults.get("schedule_template", "") or ""
-    return _apply_template(base, template)
-
-
-def _start_scheduler(
-    settings: SubtoolsSettings, app_settings: dict[str, Any] | None = None
-) -> None:
-    """Start the APScheduler with the configured auto-merge schedule.
-
-    If apscheduler is not installed, logs a warning and continues.
-    """
-    global _scheduler
-
-    try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
-        from apscheduler.triggers.cron import CronTrigger
-    except ImportError:
-        logger.warning("apscheduler not installed — auto-merge schedule disabled")
-        return
-
-    app = app_settings or _load_app_settings()
-    if not app.get("auto_merge_enabled", False):
-        logger.info("Auto-merge schedule is disabled")
-        return
-
-    schedule_time = app.get("schedule_time", "03:00")
-    if not _SCHEDULE_RE.match(schedule_time):
-        logger.error(f"Invalid schedule_time: {schedule_time}")
-        return
-
-    hour, minute = int(schedule_time[:2]), int(schedule_time[3:])
-
-    _scheduler = AsyncIOScheduler()
-    _scheduler.add_job(
-        _execute_scheduled_merge,
-        CronTrigger(hour=hour, minute=minute),
-        id="auto-merge",
-        name="auto-merge",
-        replace_existing=True,
-    )
-    _scheduler.start()
-    logger.info(f"Auto-merge scheduler started — daily at {schedule_time}")
-
-
-def _stop_scheduler() -> None:
-    """Shut down the scheduler."""
-    global _scheduler
-    if _scheduler is not None:
-        with suppress(Exception):
-            _scheduler.shutdown(wait=False)
-        _scheduler = None
-        logger.info("Auto-merge scheduler stopped")
-
-
-def _restart_scheduler() -> None:
-    """Stop and restart the scheduler to pick up new settings."""
-    _stop_scheduler()
-    _start_scheduler(_get_effective_settings())
-
-
-async def _execute_scheduled_merge() -> None:
-    """Target for the scheduled auto-merge job.
-
-    Uses an asyncio.Lock to prevent overlapping executions if a scan
-    takes longer than the configured cron interval.
-    """
-    if _schedule_merge_lock is None or not _schedule_merge_lock.locked():
-        async with _schedule_merge_lock:
-            settings = _get_schedule_merge_settings()
-            template = _load_app_settings().get("schedule_template", "") or "(default)"
-            logger.info(f"Scheduled auto-merge job started (template: {template})")
-            try:
-                loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(None, _run_scan, settings)
-                logger.info(
-                    f"Scheduled auto-merge complete: {result['merged']} merged, "
-                    f"{result['polling']} polling"
-                )
-            except Exception as exc:
-                logger.error(f"Scheduled auto-merge failed: {exc}")
-    else:
-        logger.warning("Scheduled auto-merge skipped: previous run still in progress")
-
-
 # Include modular routers (imported at end to avoid circular imports)
 from .routers.history import router as _history_router  # noqa: E402
 from .routers.merge import router as _merge_router  # noqa: E402
@@ -932,7 +731,3 @@ app.include_router(_scanner_router)
 app.include_router(_schedule_router)
 app.include_router(_settings_router)
 app.include_router(_stats_router)
-
-# Re-export symbols moved to routers (backward-compat for tests)
-from .routers.queue import api_queue_retry  # noqa: E402, F401
-from .routers.scanner import api_frame_extract  # noqa: E402, F401

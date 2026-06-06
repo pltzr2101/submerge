@@ -5,11 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from ..api import (
-    _DEFAULT_PRESETS,
     _load_app_settings,
     _load_presets,
     _save_custom_presets,
 )
+from ..presets import _DEFAULT_PRESETS
 
 router = APIRouter()
 

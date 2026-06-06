@@ -140,7 +140,7 @@ class TestAsyncEndpoints:
         """api_queue_retry must be an async function."""
         import inspect
 
-        from submerge.api import api_queue_retry
+        from submerge.routers.queue import api_queue_retry
 
         assert inspect.iscoroutinefunction(api_queue_retry)
 
@@ -148,9 +148,9 @@ class TestAsyncEndpoints:
         """api_frame_extract must use direct method call, not lambda."""
         import inspect
 
-        from submerge import api as api_module
+        from submerge.routers import scanner as scanner_module
 
-        source = inspect.getsource(api_module.api_frame_extract)
+        source = inspect.getsource(scanner_module.api_frame_extract)
         assert "BackgroundTask(lambda" not in source
         assert "BackgroundTask(Path(" in source
 
@@ -652,19 +652,19 @@ class TestScheduleMergeLock:
         """Second concurrent call returns immediately without error."""
         import asyncio
 
-        from submerge import api as api_module
+        from submerge.routers import schedule as schedule_mod
 
         _lock = asyncio.Lock()
 
         # Patch the module-level reference so the function uses our lock
-        api_module._schedule_merge_lock = _lock
+        schedule_mod._schedule_merge_lock = _lock
 
         async def _run_test():
             # Acquire the lock to simulate a running scheduled merge
             await _lock.acquire()
             # Now call _execute_scheduled_merge — it should detect the lock
             # and return early without blocking
-            await api_module._execute_scheduled_merge()
+            await schedule_mod._execute_scheduled_merge()
             _lock.release()
 
         asyncio.run(_run_test())

@@ -24,6 +24,36 @@ logger = logging.getLogger(__name__)
 LOCK_TIMEOUT = 5  # seconds
 
 
+def find_video_for_subtitle(sub_path: Path) -> Path | None:
+    """Find the video file corresponding to a subtitle file.
+
+    Peels language-code suffixes from the filename stem until a
+    matching video file is found. Handles multi-dot filenames like
+    'Movie.2024.BluRay.de.hi.srt'.
+
+    Args:
+        sub_path: Path to subtitle file
+
+    Returns:
+        Path to video file or None
+    """
+    video_exts = (".mkv", ".mp4", ".avi", ".m4v")
+    stem = sub_path.stem
+
+    # Keep peeling suffixes until find a video or no dots left.
+    # Check each stem, including the final dot-free form, inside the loop.
+    while True:
+        for ext in video_exts:
+            candidate = sub_path.parent / (stem + ext)
+            if candidate.exists():
+                return candidate
+        if "." not in stem:
+            break
+        stem = stem.rsplit(".", 1)[0]
+
+    return None
+
+
 def _config_fingerprint(settings: SubtoolsSettings) -> str:
     """Return a short SHA-256 fingerprint of all style-relevant settings.
 

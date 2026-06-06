@@ -12,7 +12,6 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..api import (
     _apply_template,
-    _find_video_for_subtitle,
     _get_batch_semaphore,
     _get_effective_settings,
     _get_sync_lock,
@@ -23,6 +22,7 @@ from ..hook import (
     cancel_polling,
     check_all_languages_present,
     find_subtitle_path,
+    find_video_for_subtitle,
     get_present_and_missing,
     process_bilingual_merge,
     should_skip_existing,
@@ -276,7 +276,7 @@ async def api_sync(request: Request):
             )
 
         # Robust video detection: peel language suffixes from the stem
-        video_file = _find_video_for_subtitle(sub_path)
+        video_file = find_video_for_subtitle(sub_path)
 
         # Try to find reference subtitle
         ref_path: Path | None = None
