@@ -253,11 +253,11 @@ Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282` using 
 
 | Dashboard | Style Editor |
 |-----------|-------------|
-| ![Dashboard](docs/screenshots/dashboard.jpg) | ![Style Editor](docs/screenshots/style-editor.jpg) |
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Style Editor](docs/screenshots/style-editor.png) |
 
 | Settings | History |
 |----------|---------|
-| ![Settings](docs/screenshots/settings.jpg) | ![History](docs/screenshots/history.jpg) |
+| ![Settings](docs/screenshots/settings.png) | ![History](docs/screenshots/history.png) |
 
 ## Auto-Merge Scheduler
 
