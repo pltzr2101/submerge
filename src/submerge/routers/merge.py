@@ -377,12 +377,8 @@ async def api_fix_overlaps(request: Request):
         fixed, count = fix_single_track_overlaps(subs)
         if count > 0:
             fixed.save(str(sub_path))
-            logger.info(
-                f"fix-overlaps: {count} event(s) repositioned in {sub_path.name}"
-            )
+            logger.info(f"fix-overlaps: {count} event(s) repositioned in {sub_path.name}")
         return {"status": "ok", "repositioned": count, "output_path": str(sub_path)}
     except Exception as e:
         logger.error(f"fix-overlaps error: {e}")
-        raise HTTPException(
-            status_code=500, detail={"status": "error", "message": str(e)}
-        ) from e
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e

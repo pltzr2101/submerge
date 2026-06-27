@@ -34,8 +34,7 @@ class TestFixSingleTrackOverlaps:
         """Two overlapping events — later receives {\\an8}, repositioned == 1."""
         srt = tmp_path / "two_overlap.srt"
         srt.write_text(
-            "1\n00:00:01,000 --> 00:00:05,000\nFirst\n\n"
-            "2\n00:00:03,000 --> 00:00:07,000\nSecond\n"
+            "1\n00:00:01,000 --> 00:00:05,000\nFirst\n\n2\n00:00:03,000 --> 00:00:07,000\nSecond\n"
         )
         subs = pysubs2.load(str(srt))
 
@@ -68,8 +67,7 @@ class TestFixSingleTrackOverlaps:
         """Events with end <= start remain unchanged."""
         srt = tmp_path / "corrupt.srt"
         srt.write_text(
-            "1\n00:00:02,000 --> 00:00:01,000\nCorrupt\n\n"
-            "2\n00:00:03,000 --> 00:00:05,000\nValid\n"
+            "1\n00:00:02,000 --> 00:00:01,000\nCorrupt\n\n2\n00:00:03,000 --> 00:00:05,000\nValid\n"
         )
         subs = pysubs2.load(str(srt))
 
@@ -117,8 +115,7 @@ class TestApiFixOverlapsEndpoint:
 
         ass = tmp_path / "test.ass"
         ass.write_text(
-            "1\n00:00:01,000 --> 00:00:05,000\nFirst\n\n"
-            "2\n00:00:03,000 --> 00:00:07,000\nSecond\n"
+            "1\n00:00:01,000 --> 00:00:05,000\nFirst\n\n2\n00:00:03,000 --> 00:00:07,000\nSecond\n"
         )
 
         resp = test_client.post(
@@ -175,8 +172,7 @@ class TestApiFixOverlapsEndpoint:
 
         srt = tmp_path / "clean.srt"
         srt.write_text(
-            "1\n00:00:01,000 --> 00:00:03,000\nFirst\n\n"
-            "2\n00:00:05,000 --> 00:00:07,000\nSecond\n"
+            "1\n00:00:01,000 --> 00:00:03,000\nFirst\n\n2\n00:00:05,000 --> 00:00:07,000\nSecond\n"
         )
         original_mtime = srt.stat().st_mtime
 
