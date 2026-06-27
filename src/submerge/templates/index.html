@@ -2,6 +2,26 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="icon-remerge" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 8a6 6 0 1 0 1.5-3.9"/><path d="M2 4v4h4"/>
+  </symbol>
+  <symbol id="icon-preview" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="8" cy="8" rx="7" ry="4.5"/><circle cx="8" cy="8" r="2"/>
+  </symbol>
+  <symbol id="icon-sync" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 3.5A6.5 6.5 0 0 0 2.5 8"/><path d="M3 12.5A6.5 6.5 0 0 0 13.5 8"/><path d="M1 6l1.5-2.5L5 6"/><path d="M11 10l2.5 2.5L11 15"/>
+  </symbol>
+  <symbol id="icon-repair" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10.5 1.5a3 3 0 0 1 0 4.24L4.75 11.5l-2.25.5.5-2.25 5.76-5.75a3 3 0 0 1 1.74-.5Z"/><path d="m9 3 2 2"/>
+  </symbol>
+  <symbol id="icon-trash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 10h8l1-10"/>
+  </symbol>
+  <symbol id="icon-dots" viewBox="0 0 16 16" fill="currentColor">
+    <circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/>
+  </symbol>
+</svg>
 <div class="page-header">
     <h1>Media Overview</h1>
     <div class="toolbar">
@@ -12,7 +32,12 @@
             <option value="missing-langs">Missing Languages</option>
             <option value="error">Error</option>
         </select>
-        <button id="btnScan" class="btn btn-primary">Scan All</button>
+        <select id="typeFilterSelect" class="filter-select">
+            <option value="all">Alle Typen</option>
+            <option value="movies">🎬 Movies</option>
+            <option value="tv">📺 TV-Serien</option>
+        </select>
+        <button id="btnScan" class="btn btn-primary" title="Scannt alle Medienverzeichnisse und startet automatisch Merges für alle Videos mit vollständigen Untertiteln">Scan &amp; Auto-Merge</button>
         <button id="btnBatchMerge" class="btn btn-success">Merge All Missing</button>
     </div>
 </div>
@@ -48,6 +73,7 @@
     </select>
     <button id="btnBatchReMerge" class="btn btn-success" onclick="executeBatchReMerge()">Re-merge selected</button>
     <button id="btnBatchDelete" class="btn btn-danger" onclick="executeBatchDelete()">Delete selected merged</button>
+    <button id="btnBatchRepair" class="btn btn-sm" onclick="executeBatchRepair()">Repair selected</button>
     <a href="#" onclick="deselectAll(); return false;" style="margin-left: 12px; color: var(--text-muted);">Deselect all</a>
 </div>
 
@@ -123,6 +149,7 @@ const PAIRS = {{ pairs | tojson }};
 const LANGS = {{ langs | tojson }};
 let allEntries = [];
 let currentFilter = 'all';
+let currentTypeFilter = 'all';
 let pendingMergeVideo = null;
 let pendingMergeOverwrite = false;
 let pendingDeleteVideo = null;
@@ -134,6 +161,10 @@ let batchMergeBusy = false;
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filterSelect').addEventListener('change', (e) => {
         currentFilter = e.target.value;
+        renderTable();
+    });
+    document.getElementById('typeFilterSelect').addEventListener('change', (e) => {
+        currentTypeFilter = e.target.value;
         renderTable();
     });
     document.getElementById('btnScan').addEventListener('click', doScan);
@@ -156,6 +187,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('deleteModal').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) closeDeleteModal();
+    });
+
+    // Close action dropdown on click outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.action-dropdown')) closeAllMenus();
     });
 
     loadMedia();
@@ -203,6 +239,102 @@ function getRowClass(entry) {
     return 'row-merged';
 }
 
+function getMediaType(entry) {
+    const p = (entry.video_path || '').replace(/\\/g, '/');
+    if (p.includes('/movies/')) return 'movies';
+    if (p.includes('/tv/')) return 'tv';
+    return 'unknown';
+}
+
+function svgIcon(id, size = 14) {
+    return `<svg width="${size}" height="${size}" aria-hidden="true"><use href="#icon-${id}"/></svg>`;
+}
+
+function renderRowActions(entry) {
+    const vp = escAttr(entry.video_path);
+    let primaryBtn = '';
+    let menuItems = '';
+
+    if (!entry.all_langs_present) {
+        return '<span style="color:var(--text-faint);font-size:0.8rem">Missing langs</span>';
+    }
+
+    if (!entry.all_merged) {
+        return `<button class="btn btn-sm btn-merge-inline"
+              onclick="showMergeModal('${vp}', false)"
+              title="Subtitle mergen">
+              ${svgIcon('remerge')} Merge
+            </button>`;
+    }
+
+    primaryBtn = `<button class="btn btn-sm btn-remerge-inline"
+                  onclick="showMergeModal('${vp}', true)"
+                  title="Subtitle neu mergen">
+                  ${svgIcon('remerge')} Re-merge
+                </button>`;
+
+    for (const pair of PAIRS) {
+        const ms = entry.merged_status[pair];
+        if (ms && ms.present && ms.path) {
+            menuItems += `<button class="action-menu-item"
+                      onclick="closeAllMenus(); showSubtitlePreview('${escAttr(ms.path)}')">
+                      ${svgIcon('preview')} Vorschau ${pair.toUpperCase()}
+                    </button>`;
+        }
+    }
+
+    for (const lang of LANGS) {
+        const st = entry.subtitle_status[lang];
+        if (st && st.present) {
+            menuItems += `<button class="action-menu-item"
+                      onclick="closeAllMenus(); doSync('${escAttr(st.path)}', '${lang}')">
+                      ${svgIcon('sync')} Sync Timing: ${lang.toUpperCase()}
+                    </button>`;
+        }
+    }
+
+    for (const lang of LANGS) {
+        const st = entry.subtitle_status[lang];
+        if (st && st.present) {
+            menuItems += `<button class="action-menu-item"
+                      onclick="closeAllMenus(); doRepair('${escAttr(st.path)}', '${lang}')">
+                      ${svgIcon('repair')} Repair Overlaps: ${lang.toUpperCase()}
+                    </button>`;
+        }
+    }
+
+    menuItems += `<div class="action-menu-divider"></div>`;
+    menuItems += `<button class="action-menu-item danger"
+                  onclick="closeAllMenus(); showDeleteModal('${vp}')">
+                  ${svgIcon('trash')} Merged Subtitle löschen
+                </button>`;
+
+    const menuId = `menu-${CSS.escape(entry.video_path)}`;
+
+    return `<div style="display:flex;gap:6px;align-items:center">
+    ${primaryBtn}
+    <div class="action-dropdown">
+      <button class="action-menu-btn" onclick="toggleMenu('${menuId}')" title="Weitere Aktionen" aria-haspopup="true">
+        ${svgIcon('dots', 16)}
+      </button>
+      <div class="action-menu" id="${menuId}">
+        ${menuItems}
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleMenu(menuId) {
+    const menu = document.getElementById(menuId);
+    const isOpen = menu.classList.contains('open');
+    closeAllMenus();
+    if (!isOpen) menu.classList.add('open');
+}
+
+function closeAllMenus() {
+    document.querySelectorAll('.action-menu.open').forEach(m => m.classList.remove('open'));
+}
+
 function renderTable() {
     const tbody = document.getElementById('mediaTbody');
     let filtered = allEntries;
@@ -216,6 +348,10 @@ function renderTable() {
         filtered = allEntries.filter(e => e.error);
     }
 
+    if (currentTypeFilter !== 'all') {
+        filtered = filtered.filter(e => getMediaType(e) === currentTypeFilter);
+    }
+
     if (filtered.length === 0) {
         tbody.innerHTML = '<tr><td colspan="100" class="empty-cell">No entries found</td></tr>';
         return;
@@ -223,30 +359,6 @@ function renderTable() {
 
     tbody.innerHTML = filtered.map(entry => {
         const cls = getRowClass(entry);
-        let actions = '';
-
-        // Merge or Re-merge button
-        if (entry.all_langs_present) {
-            if (!entry.all_merged) {
-                actions += `<button class="btn btn-sm btn-success" onclick="showMergeModal('${escAttr(entry.video_path)}', false)">Merge</button> `;
-            } else {
-                actions += `<button class="btn btn-sm btn-accent" onclick="showMergeModal('${escAttr(entry.video_path)}', true)">Re-merge</button> `;
-                actions += `<button class="btn btn-sm btn-danger" onclick="showDeleteModal('${escAttr(entry.video_path)}')">🗑</button> `;
-                for (const pair of PAIRS) {
-                    const ms = entry.merged_status[pair];
-                    if (ms && ms.present && ms.path) {
-                        actions += `<button class="btn btn-sm btn-outline" title="Preview ${pair}" onclick="showSubtitlePreview('${escAttr(ms.path)}')">👁 ${pair}</button> `;
-                    }
-                }
-            }
-        }
-        // Sync buttons
-        for (const lang of LANGS) {
-            const st = entry.subtitle_status[lang];
-            if (st && st.present) {
-                actions += `<button class="btn btn-sm" title="Sync ${lang.toUpperCase()}" onclick="doSync('${escAttr(st.path)}', '${lang}')">↻${lang.toUpperCase()}</button> `;
-            }
-        }
 
         let cells = '';
         cells += `<td class="chk-col"><input type="checkbox" class="chk-video" data-video-path="${escAttr(entry.video_path)}" onchange="onCheckboxChange()"></td>`;
@@ -266,7 +378,7 @@ function renderTable() {
             cells += `<td class="status-col">${icon}</td>`;
         }
 
-        cells += `<td class="actions-col">${actions}</td>`;
+        cells += `<td class="actions-col">${renderRowActions(entry)}</td>`;
 
         return `<tr class="${cls}">${cells}</tr>`;
     }).join('');
@@ -475,6 +587,29 @@ async function doSync(subtitlePath, lang) {
     }
 }
 
+async function doRepair(subtitlePath, lang) {
+    if (!subtitlePath) return;
+    showStatus(`Repairing ${lang.toUpperCase()} Subtitle…`, 'info');
+    try {
+        const resp = await fetch('/api/fix-overlaps', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({subtitle_path: subtitlePath}),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            const msg = data.repositioned > 0
+                ? `Repair ${lang.toUpperCase()}: ${data.repositioned} überlappende Events korrigiert`
+                : `Repair ${lang.toUpperCase()}: Keine Überlappungen gefunden`;
+            showStatus(msg, data.repositioned > 0 ? 'success' : 'info');
+        } else {
+            showStatus(`Repair fehlgeschlagen: ${data.message || 'Unbekannter Fehler'}`, 'error');
+        }
+    } catch (e) {
+        showStatus('Repair failed: ' + e.message, 'error');
+    }
+}
+
 async function doScan() {
     showStatus('Scanning...', 'info');
     try {
@@ -633,6 +768,56 @@ async function executeBatchDelete() {
     showStatus(msg, errors > 0 ? 'error' : 'success');
     deselectAll();
     setTimeout(loadMedia, 2000);
+}
+
+async function executeBatchRepair() {
+    const checked = document.querySelectorAll('.chk-video:checked');
+    if (checked.length === 0) return;
+
+    const videoPaths = Array.from(checked).map(cb => cb.dataset.videoPath);
+
+    const subtitlePaths = [];
+    for (const vp of videoPaths) {
+        const entry = allEntries.find(e => e.video_path === vp);
+        if (!entry) continue;
+        for (const lang of LANGS) {
+            const st = entry.subtitle_status[lang];
+            if (st && st.present && st.path) {
+                subtitlePaths.push(st.path);
+            }
+        }
+    }
+
+    if (subtitlePaths.length === 0) {
+        showStatus('Keine Subtitle-Dateien in der Auswahl gefunden.', 'warning');
+        return;
+    }
+
+    showStatus(`Repairing ${subtitlePaths.length} Subtitle(s)…`, 'info');
+    let fixed = 0;
+    let errors = 0;
+    let totalRepositioned = 0;
+
+    for (const sp of subtitlePaths) {
+        try {
+            const resp = await fetch('/api/fix-overlaps', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({subtitle_path: sp}),
+            });
+            const data = await resp.json();
+            if (data.status === 'ok') {
+                fixed++;
+                totalRepositioned += data.repositioned || 0;
+            } else {
+                errors++;
+            }
+        } catch (_) { errors++; }
+    }
+
+    const msg = `Batch-Repair: ${fixed} Datei(en) verarbeitet, ${totalRepositioned} Events repositioniert${errors > 0 ? `, ${errors} Fehler` : ''}`;
+    showStatus(msg, errors > 0 ? 'error' : 'success');
+    deselectAll();
 }
 
 function connectLogStream() {

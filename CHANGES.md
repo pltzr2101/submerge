@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.4.0] - 2026-06-27
+
+### Added
+
+- **Media type filter on Dashboard** (`index.html`): A second dropdown (Alle Typen /
+  🎬 Movies / 📺 TV-Serien) next to the existing status filter allows filtering
+  the media overview by media type. Detection is purely client-side based on
+  `/movies/` and `/tv/` path segments in `video_path`.
+- **Unified dropdown row actions** (`renderRowActions`): All per-video actions
+  (preview, sync timing, repair overlaps, delete merged) are now in a single
+  SVG-icon dropdown menu with a primary action button (Merge / Re-merge) shown
+  inline. Removes the previous emoji + mixed button approach.
+- **Repair overlaps** (`fix_single_track_overlaps` in `merge.py`): Resolves
+  temporally overlapping events in a single subtitle track by adding inline
+  ``{\an8}`` alignment overrides to later-starting events (standard fansub
+  practice for simultaneous dialogue). Corrupt events (end ≤ start) are left
+  untouched.
+- **`POST /api/fix-overlaps`** endpoint in `routers/merge.py`: Fix overlapping
+  events in a single subtitle file in-place. Returns repositioned count.
+- **Batch repair**: New "Repair selected" button in the batch toolbar runs
+  `/api/fix-overlaps` on all subtitle files of selected videos via
+  `executeBatchRepair()`.
+
+### Changed
+
+- **"Scan All" button** renamed to "Scan & Auto-Merge" with updated tooltip.
+- **Row actions in Dashboard** replaced with unified dropdown (see Added section).
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),

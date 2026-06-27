@@ -528,3 +528,83 @@ legend {
     margin-top: 4px;
 }
 
+/* ── Row Action Dropdown ─────────────────────────── */
+.action-dropdown { position: relative; display: inline-block; }
+
+.action-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.action-menu-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.action-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 210px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 200;
+  overflow: hidden;
+  display: none;
+}
+.action-menu.open { display: block; }
+
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  transition: background 0.12s;
+}
+.action-menu-item:hover { background: var(--bg-hover); }
+.action-menu-item svg { flex-shrink: 0; color: var(--text-muted); }
+.action-menu-item.danger { color: var(--error); }
+.action-menu-item.danger svg { color: var(--error); }
+.action-menu-item.disabled { opacity: 0.4; pointer-events: none; }
+
+.action-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* Inline Merge button (primary visible action) */
+.btn-merge-inline {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+.btn-merge-inline:hover { background: var(--success-hover); border-color: var(--success-hover); }
+
+.btn-remerge-inline {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-remerge-inline:hover { background: var(--accent-hover); }
+

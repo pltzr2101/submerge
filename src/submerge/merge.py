@@ -193,6 +193,41 @@ def run_quality_checks(
     return warnings
 
 
+def fix_single_track_overlaps(subs: SSAFile) -> tuple[SSAFile, int]:
+    """Resolve overlapping events in a single subtitle track.
+
+    When two or more events overlap temporally, events that start later
+    receive an inline ``{\\an8}`` alignment override so they appear at the
+    top of the screen while the earlier event stays at the bottom.
+    This is the standard fansub practice for simultaneous dialogue.
+
+    Events with end <= start (corrupt) are left untouched.
+
+    Args:
+        subs: A loaded SSAFile (single track, any format loadable by pysubs2).
+
+    Returns:
+        Tuple of (modified SSAFile, number_of_events_repositioned).
+    """
+    events = sorted(subs.events, key=lambda e: e.start)
+    repositioned = 0
+    for i, ev in enumerate(events):
+        if ev.end <= ev.start:
+            continue
+        for j in range(i + 1, len(events)):
+            other = events[j]
+            if other.start >= ev.end:
+                break
+            if other.end <= other.start:
+                continue
+            if not other.text.startswith(r"{\an8}"):
+                other.text = r"{\an8}" + other.text
+                repositioned += 1
+    result = copy.copy(subs)
+    result.events = events
+    return result, repositioned
+
+
 # Regex to strip inline alignment/position/move overrides from subtitle text.
 # Tags like {\an8}, {\an2}, {\pos(100,200)}, {\move(...)} override the
 # per-style alignment set by merge_bilingual and must be removed.
