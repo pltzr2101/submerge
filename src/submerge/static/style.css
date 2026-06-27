@@ -565,7 +565,7 @@ legend {
   overflow: hidden;
   display: none;
 }
-.action-menu.open { display: block; }
+.action-menu.open { display: flex; flex-direction: column; }
 
 .action-menu-item {
   display: flex;
