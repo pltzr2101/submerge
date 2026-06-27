@@ -250,69 +250,74 @@ function svgIcon(id, size = 14) {
     return `<svg width="${size}" height="${size}" aria-hidden="true"><use href="#icon-${id}"/></svg>`;
 }
 
-function renderRowActions(entry) {
+function renderRowActions(entry, idx) {
     const vp = escAttr(entry.video_path);
+    const menuId = `action-menu-${idx}`;
     let primaryBtn = '';
     let menuItems = '';
 
-    if (!entry.all_langs_present) {
-        return '<span style="color:var(--text-faint);font-size:0.8rem">Missing langs</span>';
+    // Primary button — nur wenn alle Sprachen vorhanden
+    if (entry.all_langs_present && !entry.all_merged) {
+        primaryBtn = `<button class="btn btn-sm btn-merge-inline"
+            onclick="showMergeModal('${vp}', false)"
+            title="Subtitle mergen">
+            ${svgIcon('remerge')} Merge
+        </button>`;
+    } else if (entry.all_langs_present && entry.all_merged) {
+        primaryBtn = `<button class="btn btn-sm btn-remerge-inline"
+            onclick="showMergeModal('${vp}', true)"
+            title="Subtitle neu mergen">
+            ${svgIcon('remerge')} Re-merge
+        </button>`;
     }
 
-    if (!entry.all_merged) {
-        return `<button class="btn btn-sm btn-merge-inline"
-              onclick="showMergeModal('${vp}', false)"
-              title="Subtitle mergen">
-              ${svgIcon('remerge')} Merge
-            </button>`;
-    }
-
-    primaryBtn = `<button class="btn btn-sm btn-remerge-inline"
-                  onclick="showMergeModal('${vp}', true)"
-                  title="Subtitle neu mergen">
-                  ${svgIcon('remerge')} Re-merge
-                </button>`;
-
+    // Preview items (nur wenn gemergt)
     for (const pair of PAIRS) {
         const ms = entry.merged_status[pair];
         if (ms && ms.present && ms.path) {
             menuItems += `<button class="action-menu-item"
-                      onclick="closeAllMenus(); showSubtitlePreview('${escAttr(ms.path)}')">
-                      ${svgIcon('preview')} Vorschau ${pair.toUpperCase()}
-                    </button>`;
+                onclick="closeAllMenus(); showSubtitlePreview('${escAttr(ms.path)}')">
+                ${svgIcon('preview')} Vorschau ${pair.toUpperCase()}
+            </button>`;
         }
     }
 
+    // Sync + Repair — für JEDE vorhandene Sprache, unabhängig von all_langs_present
     for (const lang of LANGS) {
         const st = entry.subtitle_status[lang];
-        if (st && st.present) {
+        if (st && st.present && st.path) {
             menuItems += `<button class="action-menu-item"
-                      onclick="closeAllMenus(); doSync('${escAttr(st.path)}', '${lang}')">
-                      ${svgIcon('sync')} Sync Timing: ${lang.toUpperCase()}
-                    </button>`;
+                onclick="closeAllMenus(); doSync('${escAttr(st.path)}', '${lang}')">
+                ${svgIcon('sync')} Sync Timing: ${lang.toUpperCase()}
+            </button>`;
         }
     }
-
     for (const lang of LANGS) {
         const st = entry.subtitle_status[lang];
-        if (st && st.present) {
+        if (st && st.present && st.path) {
             menuItems += `<button class="action-menu-item"
-                      onclick="closeAllMenus(); doRepair('${escAttr(st.path)}', '${lang}')">
-                      ${svgIcon('repair')} Repair Overlaps: ${lang.toUpperCase()}
-                    </button>`;
+                onclick="closeAllMenus(); doRepair('${escAttr(st.path)}', '${lang}')">
+                ${svgIcon('repair')} Repair Overlaps: ${lang.toUpperCase()}
+            </button>`;
         }
     }
 
-    menuItems += `<div class="action-menu-divider"></div>`;
-    menuItems += `<button class="action-menu-item danger"
-                  onclick="closeAllMenus(); showDeleteModal('${vp}')">
-                  ${svgIcon('trash')} Merged Subtitle löschen
-                </button>`;
+    // Delete (nur wenn gemergt)
+    if (entry.all_merged) {
+        menuItems += `<div class="action-menu-divider"></div>`;
+        menuItems += `<button class="action-menu-item danger"
+            onclick="closeAllMenus(); showDeleteModal('${vp}')">
+            ${svgIcon('trash')} Merged Subtitle löschen
+        </button>`;
+    }
 
-    const menuId = `menu-${CSS.escape(entry.video_path)}`;
+    // Fallback: wirklich gar keine Subtitle-Dateien vorhanden
+    if (!primaryBtn && !menuItems) {
+        return '<span style="color:var(--text-faint);font-size:0.8rem">Missing langs</span>';
+    }
 
-    return `<div style="display:flex;gap:6px;align-items:center">
-    ${primaryBtn}
+    // Dropdown nur rendern wenn menuItems vorhanden
+    const dropdownHtml = menuItems ? `
     <div class="action-dropdown">
       <button class="action-menu-btn" onclick="toggleMenu('${menuId}')" title="Weitere Aktionen" aria-haspopup="true">
         ${svgIcon('dots', 16)}
@@ -320,8 +325,12 @@ function renderRowActions(entry) {
       <div class="action-menu" id="${menuId}">
         ${menuItems}
       </div>
-    </div>
-  </div>`;
+    </div>` : '';
+
+    return `<div style="display:flex;gap:6px;align-items:center">
+        ${primaryBtn}
+        ${dropdownHtml}
+    </div>`;
 }
 
 function toggleMenu(menuId) {
@@ -357,7 +366,7 @@ function renderTable() {
         return;
     }
 
-    tbody.innerHTML = filtered.map(entry => {
+    tbody.innerHTML = filtered.map((entry, i) => {
         const cls = getRowClass(entry);
 
         let cells = '';
@@ -378,7 +387,7 @@ function renderTable() {
             cells += `<td class="status-col">${icon}</td>`;
         }
 
-        cells += `<td class="actions-col">${renderRowActions(entry)}</td>`;
+        cells += `<td class="actions-col">${renderRowActions(entry, i)}</td>`;
 
         return `<tr class="${cls}">${cells}</tr>`;
     }).join('');
@@ -776,46 +785,53 @@ async function executeBatchRepair() {
 
     const videoPaths = Array.from(checked).map(cb => cb.dataset.videoPath);
 
-    const subtitlePaths = [];
+    const subtitleEntries = [];
     for (const vp of videoPaths) {
         const entry = allEntries.find(e => e.video_path === vp);
         if (!entry) continue;
         for (const lang of LANGS) {
             const st = entry.subtitle_status[lang];
             if (st && st.present && st.path) {
-                subtitlePaths.push(st.path);
+                subtitleEntries.push({ path: st.path, lang });
             }
         }
     }
 
-    if (subtitlePaths.length === 0) {
+    if (subtitleEntries.length === 0) {
         showStatus('Keine Subtitle-Dateien in der Auswahl gefunden.', 'warning');
         return;
     }
 
-    showStatus(`Repairing ${subtitlePaths.length} Subtitle(s)…`, 'info');
+    showStatus(`Repairing ${subtitleEntries.length} Subtitle(s)…`, 'info');
     let fixed = 0;
     let errors = 0;
     let totalRepositioned = 0;
+    const langRepositioned = {};  // {lang: count}
 
-    for (const sp of subtitlePaths) {
+    for (const se of subtitleEntries) {
         try {
             const resp = await fetch('/api/fix-overlaps', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({subtitle_path: sp}),
+                body: JSON.stringify({subtitle_path: se.path}),
             });
             const data = await resp.json();
             if (data.status === 'ok') {
                 fixed++;
-                totalRepositioned += data.repositioned || 0;
+                const rp = data.repositioned || 0;
+                totalRepositioned += rp;
+                langRepositioned[se.lang] = (langRepositioned[se.lang] || 0) + rp;
             } else {
                 errors++;
             }
         } catch (_) { errors++; }
     }
 
-    const msg = `Batch-Repair: ${fixed} Datei(en) verarbeitet, ${totalRepositioned} Events repositioniert${errors > 0 ? `, ${errors} Fehler` : ''}`;
+    const langParts = Object.entries(langRepositioned)
+        .map(([lang, n]) => `${lang.toUpperCase()}: ${n}`)
+        .join(', ');
+    const langSummary = langParts ? ` (${langParts})` : '';
+    const msg = `Batch-Repair: ${fixed} Datei(en) verarbeitet, ${totalRepositioned} Events repositioniert${langSummary}${errors > 0 ? `, ${errors} Fehler` : ''}`;
     showStatus(msg, errors > 0 ? 'error' : 'success');
     deselectAll();
 }
