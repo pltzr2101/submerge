@@ -8,6 +8,10 @@
         <button class="btn btn-sm" id="btnAll" data-filter="all" onclick="setFilter('all')">Alle</button>
         <button class="btn btn-sm btn-success" id="btnDone" data-filter="done" onclick="setFilter('done')">Merged</button>
         <button class="btn btn-sm btn-danger" id="btnFailed" data-filter="failed" onclick="setFilter('failed')">Fehlgeschlagen</button>
+        <span style="margin-left: var(--space-2, 8px);"></span>
+        <button class="btn btn-sm btn-primary" id="btnTypeAll" data-type="all" onclick="setTypeFilter('all')">Alle Typen</button>
+        <button class="btn btn-sm" id="btnTypeMovies" data-type="movies" onclick="setTypeFilter('movies')">🎬 Movies</button>
+        <button class="btn btn-sm" id="btnTypeTV" data-type="tv" onclick="setTypeFilter('tv')">📺 TV-Serien</button>
         <button class="btn btn-sm btn-primary" id="btnExportSelected" onclick="exportSelected()" disabled>Export Selected (.zip)</button>
         <button class="btn btn-sm btn-danger" onclick="clearHistory()" style="margin-left:auto;">Verlauf löschen</button>
     </div>
@@ -40,6 +44,7 @@
 <script>
 let allEntries = [];
 let currentFilter = 'all';
+let currentTypeFilter = 'all';
 let refreshTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -51,6 +56,22 @@ function setFilter(f) {
     currentFilter = f;
     document.querySelectorAll('#btnAll, #btnDone, #btnFailed').forEach(b => b.classList.remove('btn-primary'));
     document.getElementById('btn' + (f === 'all' ? 'All' : f === 'done' ? 'Done' : 'Failed')).classList.add('btn-primary');
+    renderTable();
+}
+
+function getMediaType(entry) {
+    const p = (entry.video_path || '').replace(/\\/g, '/');
+    if (p.includes('/movies/')) return 'movies';
+    if (p.includes('/tv/')) return 'tv';
+    return 'unknown';
+}
+
+function setTypeFilter(f) {
+    currentTypeFilter = f;
+    document.querySelectorAll('#btnTypeAll, #btnTypeMovies, #btnTypeTV')
+        .forEach(b => b.classList.remove('btn-primary'));
+    const idMap = { all: 'btnTypeAll', movies: 'btnTypeMovies', tv: 'btnTypeTV' };
+    document.getElementById(idMap[f]).classList.add('btn-primary');
     renderTable();
 }
 
@@ -92,6 +113,10 @@ function renderTable() {
     let filtered = allEntries;
     if (currentFilter !== 'all') {
         filtered = allEntries.filter(e => e.status === currentFilter);
+    }
+
+    if (currentTypeFilter !== 'all') {
+        filtered = filtered.filter(e => getMediaType(e) === currentTypeFilter);
     }
 
     if (filtered.length === 0) {

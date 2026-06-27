@@ -245,7 +245,7 @@ Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282` using 
 | Page | Description |
 |------|-------------|
 | **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), per-video merge/sync buttons, batch "merge all missing", search/filter, polling status badge |
-| **History** (`/history`) | Merge history table showing all past merge operations with status badges, duration, output files, and timestamps. Client-side filtering by status (all / merged / failed), auto-refresh every 30 s, clear-button |
+| **History** (`/history`) | Merge history table showing all past merge operations with status badges, duration, output files, and timestamps. Client-side filtering by status (all / merged / failed) and media type (all / 🎬 movies / 📺 TV series), auto-refresh every 30 s, clear-button |
 | **Settings** (`/settings`) | Override `SUBTOOLS_*` environment variables at runtime. **In-memory only — changes are lost on container restart.** To persist style changes permanently: save as a Preset in the Style Editor, then set it as the Default Template via `POST /api/settings/default-template` or the Style Editor UI. |
 | **Style Editor** (`/styles`) | Two-tab editor (Bottom/Top) with color pickers, font size, outline/shadow controls, CJK font selector, canvas preview, preset save/load, ASS export button |
 

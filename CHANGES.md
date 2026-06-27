@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Media type filter in History GUI** (`history.html`): A second button group
+  (Alle Typen / 🎬 Movies / 📺 TV-Serien) next to the existing status filter
+  allows filtering merge history entries by media type. Detection is purely
+  client-side based on `/movies/` and `/tv/` path segments in `video_path`.
 - **Bottom-dedup by top-coverage** (`_deduplicate_bottom_by_top_coverage` in
   `merge.py`): When two same-language subtitle sources are merged as `sub1`,
   near-duplicate bottom events (minimal timing variance) that cover the same
