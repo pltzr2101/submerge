@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pysubs2 import SSAFile
 
-from .merge import _load_subtitle_file
+from .subtitle_io import _load_subtitle_file
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,8 @@ def fix_single_track_overlaps(subs: SSAFile) -> tuple[SSAFile, int]:
     start) are left untouched. The function is idempotent: calling it
     twice on an already-fixed file produces no further changes.
 
+    If format is None, SRT-safe nudging is used (no ASS tags injected).
+
     Args:
         subs: A loaded SSAFile (single track, any format supported by pysubs2).
 
@@ -41,9 +43,11 @@ def fix_single_track_overlaps(subs: SSAFile) -> tuple[SSAFile, int]:
         Tuple of (modified SSAFile, number_of_events_repositioned).
         If number_of_events_repositioned == 0, the file was not modified.
     """
-    is_ass = subs.format in ("ass", "ssa") if subs.format else True
+    # Work on a deep copy so the caller's object is never mutated.
+    result = copy.deepcopy(subs)
+    is_ass = result.format in ("ass", "ssa") if result.format else False
 
-    events = sorted(subs.events, key=lambda e: e.start)
+    events = sorted(result.events, key=lambda e: e.start)
     repositioned = 0
 
     for i, ev in enumerate(events):
@@ -65,7 +69,6 @@ def fix_single_track_overlaps(subs: SSAFile) -> tuple[SSAFile, int]:
                     other.start = new_start
                     repositioned += 1
 
-    result = copy.copy(subs)
     result.events = events
     return result, repositioned
 

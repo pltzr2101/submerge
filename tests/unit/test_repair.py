@@ -51,6 +51,13 @@ class TestFixSingleTrackOverlaps:
         for ev in fixed.events:
             assert r"{\an8}" not in ev.text
 
+    def test_srt_idempotent_already_fixed(self):
+        subs = _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt")
+        fixed1, count1 = fix_single_track_overlaps(subs)
+        assert count1 == 1
+        _, count2 = fix_single_track_overlaps(fixed1)
+        assert count2 == 0
+
     def test_three_simultaneous_events(self):
         subs = _make_subs(
             [

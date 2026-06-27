@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-import pysubs2
 from pysubs2 import Alignment, Color, SSAFile, SSAStyle
 
 logger = logging.getLogger(__name__)
@@ -372,43 +371,9 @@ def _best_top_overlap(bottom_event, top_events: list) -> int:
     return best
 
 
-def _load_subtitle_file(path: Path) -> SSAFile:
-    """Load a subtitle file with encoding handling."""
-    try:
-        # pysubs2 handles encoding detection automatically
-        return pysubs2.load(str(path), encoding="utf-8")
-    except UnicodeDecodeError:
-        # Fallback: use charset_normalizer for robust auto-detection
-        logger.warning(f"UTF-8 encoding failed for {path.name}, auto-detecting...")
-        try:
-            from charset_normalizer import from_path as _detect
-
-            result = _detect(path).best()
-            if result is not None:
-                content = str(result)
-                logger.info(f"Detected encoding for {path.name}: {result.encoding}")
-                return pysubs2.SSAFile.from_string(content)
-            # charset_normalizer couldn't determine encoding → try EUC-KR/CP949 as
-            # last resort (common for Korean subtitle files from Asian sources)
-            logger.warning(f"Auto-detection failed for {path.name}, trying EUC-KR fallback...")
-            for fallback_enc in ("euc-kr", "cp949", "latin-1"):
-                try:
-                    content = path.read_bytes().decode(fallback_enc, errors="replace")
-                    subs = pysubs2.SSAFile.from_string(content)
-                    logger.warning(
-                        f"Loaded {path.name} with fallback encoding {fallback_enc} "
-                        f"(may contain replacement chars)"
-                    )
-                    return subs
-                except Exception:
-                    continue
-            raise InvalidSubtitleError(f"Could not detect encoding for {path.name}")
-        except InvalidSubtitleError:
-            raise
-        except Exception as e:
-            raise InvalidSubtitleError(f"Failed to load {path.name}: {e}") from e
-    except Exception as e:
-        raise InvalidSubtitleError(f"Parsing error {path.name}: {e}") from e
+# Re-exported from subtitle_io for backward compatibility.
+# TODO: remove in v3.0 – import directly from subtitle_io
+from .subtitle_io import _load_subtitle_file  # noqa: E402, F401
 
 
 def merge_bilingual(
