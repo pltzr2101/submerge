@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.4.1] - 2026-06-27
+
+### Changed
+
+- **Refactored repair into own module** (`src/submerge/repair.py`): `fix_single_track_overlaps`
+  moved out of `merge.py` into a dedicated single-responsibility module. Overlap fix is now
+  format-aware: ASS/SSA tracks receive inline ``{\\an8}`` alignment overrides, while SRT and
+  other formats use non-destructive time nudging (+1 ms).
+- **New endpoint** `POST /api/repair/fix-overlaps` replaces the old `/api/fix-overlaps`.
+  Returns `{"status": "ok", "repositioned": N, "output_path": "...", "modified": bool}`.
+- **Per-row Repair button**: Each video row now shows a direct "Repair" button that fixes
+  overlapping events in the first available subtitle track.
+- **Repair All toolbar button**: New "Repair All" button runs repair on all entries
+  with subtitle files via `repairAll()`, showing progress and total results.
+
+### Fixed
+
+- **Dropdown toggle**: Replaced `CSS.escape()`-based menu IDs (which produced illegal HTML
+  IDs for paths with special characters like `[imdbid-...]`) with index-based IDs.
+- **Missing-lang guard**: Removed early-return that blocked Sync/Repair actions when not all
+  languages were present. Merge buttons are now gated on `all_langs_present`, while
+  sync/repair are always available for each present language.
+- **Batch repair**: Status message now shows per-language repositioned counts
+  (e.g. `DE: 3, KO: 0`).
+
+### Removed
+
+- `fix_single_track_overlaps()` from `merge.py` — now in `repair.py`.
+- `POST /api/fix-overlaps` endpoint from `routers/merge.py` — replaced by `/api/repair/fix-overlaps`.
+
 ## [2.4.0] - 2026-06-27
 
 ### Added
@@ -9,19 +39,15 @@
   the media overview by media type. Detection is purely client-side based on
   `/movies/` and `/tv/` path segments in `video_path`.
 - **Unified dropdown row actions** (`renderRowActions`): All per-video actions
-  (preview, sync timing, repair overlaps, delete merged) are now in a single
+  (preview, sync timing, repair overlaps per language, delete merged) are now in a single
   SVG-icon dropdown menu with a primary action button (Merge / Re-merge) shown
   inline. Removes the previous emoji + mixed button approach.
-- **Repair overlaps** (`fix_single_track_overlaps` in `merge.py`): Resolves
-  temporally overlapping events in a single subtitle track by adding inline
-  ``{\an8}`` alignment overrides to later-starting events (standard fansub
-  practice for simultaneous dialogue). Corrupt events (end ≤ start) are left
-  untouched.
-- **`POST /api/fix-overlaps`** endpoint in `routers/merge.py`: Fix overlapping
-  events in a single subtitle file in-place. Returns repositioned count.
-- **Batch repair**: New "Repair selected" button in the batch toolbar runs
-  `/api/fix-overlaps` on all subtitle files of selected videos via
-  `executeBatchRepair()`.
+- **Repair overlaps**: Initial overlap fix implementation (refactored into
+  dedicated `repair.py` module in v2.4.1 with format-aware ASS/SRT handling).
+- **`POST /api/fix-overlaps`** endpoint: Initial repair endpoint (replaced by
+  `/api/repair/fix-overlaps` in v2.4.1).
+- **Batch repair**: New "Repair selected" button in the batch toolbar (enhanced
+  with per-language counts in v2.4.1).
 
 ### Changed
 

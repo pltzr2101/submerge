@@ -32,7 +32,7 @@ Automatic bilingual subtitle merge service for ARR stacks. Combines two single-l
 - **Bottom-dedup by top-coverage** — automatically removes near-duplicate bottom events when two same-language sources are merged
 - **Movies/TV filter** — client-side media type filter (🎬 Movies / 📺 TV-Serien) on the dashboard
 - **Dropdown row actions** — unified SVG-icon context menu per video row (preview, sync timing, repair overlaps, delete merged)
-- **Repair overlaps** — detect and fix temporally overlapping events in single subtitle tracks with inline ``{\an8}`` alignment overrides (single + batch mode)
+- **Repair overlaps** — format-aware overlap fixing: ASS tracks get inline ``{\an8}`` alignment overrides, SRT tracks get non-destructive time nudging (+1 ms). Single-click per row or batch "Repair All" via toolbar.
 - **Statistics dashboard** — merge success rate, pending/failed counts, average retries on the home page
 - **Batch export** — download output files from multiple history entries as a ZIP archive
 - **Basic Auth + rate limiting** for Web UI protection
@@ -194,7 +194,7 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `POST` | `/api/merge` | Trigger merge for one video (`{"video_path": "..."}`) |
 | `POST` | `/api/batch-merge` | Trigger merge for multiple videos. Body: `{"video_paths": ["<path>", ...], "template": "<preset>", "overwrite": true}`. Response: `{"results": [{"video": "<name>", "status": "merged"|"skipped"|"error"|"polling", ...}]}` |
 | `POST` | `/api/sync` | Synchronize a subtitle file via ffsubsync |
-| `POST` | `/api/fix-overlaps` | Fix overlapping events in a single subtitle track (``{\an8}`` repositioning). Body: `{"subtitle_path": "<path>"}`. Response: `{"status": "ok", "repositioned": N, "output_path": "..."}` |
+| `POST` | `/api/repair/fix-overlaps` | Fix overlapping events in a single subtitle track. ASS tracks receive inline ``{\an8}`` alignment overrides, SRT tracks get time nudging (+1 ms). Body: `{"subtitle_path": "<path>"}`. Response: `{"status": "ok", "repositioned": N, "output_path": "...", "modified": true/false}` |
 | `POST` | `/scan` | Scan all directories, start missing merges |
 | `GET` | `/api/polls` | List active background polling jobs |
 
@@ -248,7 +248,7 @@ Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282` using 
 
 | Page | Description |
 |------|-------------|
-| **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), unified SVG-icon dropdown row actions (preview, sync, repair overlaps, delete), media type filter (🎬 Movies / 📺 TV-Serien), batch merge/repair/delete toolbar, "Scan & Auto-Merge" button |
+| **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), per-row Repair/Merge/Re-merge buttons, unified SVG-icon dropdown row actions (preview, sync, repair overlaps, delete), media type filter (🎬 Movies / 📺 TV-Serien), batch merge/repair/delete toolbar, "Scan & Auto-Merge" button, "Repair All" button |
 | **History** (`/history`) | Merge history table showing all past merge operations with status badges, duration, output files, and timestamps. Client-side filtering by status (all / merged / failed) and media type (all / 🎬 movies / 📺 TV series), auto-refresh every 30 s, clear-button |
 | **Settings** (`/settings`) | Override `SUBTOOLS_*` environment variables at runtime. **In-memory only — changes are lost on container restart.** To persist style changes permanently: save as a Preset in the Style Editor, then set it as the Default Template via `POST /api/settings/default-template` or the Style Editor UI. |
 | **Style Editor** (`/styles`) | Two-tab editor (Bottom/Top) with color pickers, font size, outline/shadow controls, CJK font selector, canvas preview, preset save/load, ASS export button |

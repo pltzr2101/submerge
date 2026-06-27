@@ -715,6 +715,7 @@ from .routers.merge import router as _merge_router  # noqa: E402
 from .routers.presets import router as _presets_router  # noqa: E402
 from .routers.preview import router as _preview_router  # noqa: E402
 from .routers.queue import router as _queue_router  # noqa: E402
+from .routers.repair import router as _repair_router  # noqa: E402
 from .routers.scanner import _run_scan  # noqa: E402
 from .routers.scanner import router as _scanner_router  # noqa: E402
 from .routers.schedule import router as _schedule_router  # noqa: E402
@@ -730,3 +731,4 @@ app.include_router(_scanner_router)
 app.include_router(_schedule_router)
 app.include_router(_settings_router)
 app.include_router(_stats_router)
+app.include_router(_repair_router)

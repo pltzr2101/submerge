@@ -39,6 +39,7 @@
         </select>
         <button id="btnScan" class="btn btn-primary" title="Scannt alle Medienverzeichnisse und startet automatisch Merges für alle Videos mit vollständigen Untertiteln">Scan &amp; Auto-Merge</button>
         <button id="btnBatchMerge" class="btn btn-success">Merge All Missing</button>
+        <button id="btnRepairAll" class="btn btn-success" onclick="repairAll()">Repair All</button>
     </div>
 </div>
 
@@ -271,6 +272,21 @@ function renderRowActions(entry, idx) {
         </button>`;
     }
 
+    // Per-row Repair button — first available subtitle
+    let repairBtn = '';
+    for (const lang of LANGS) {
+        const st = entry.subtitle_status[lang];
+        if (st && st.present && st.path) {
+            const sp = escAttr(st.path);
+            repairBtn = `<button class="btn btn-sm"
+                onclick="repairSubtitle(allEntries.find(e => e.video_path === '${vp}'))"
+                title="Overlaps in ${lang.toUpperCase()} reparieren">
+                ${svgIcon('repair')} Repair
+            </button>`;
+            break;
+        }
+    }
+
     // Preview items (nur wenn gemergt)
     for (const pair of PAIRS) {
         const ms = entry.merged_status[pair];
@@ -329,6 +345,7 @@ function renderRowActions(entry, idx) {
 
     return `<div style="display:flex;gap:6px;align-items:center">
         ${primaryBtn}
+        ${repairBtn}
         ${dropdownHtml}
     </div>`;
 }
@@ -600,7 +617,7 @@ async function doRepair(subtitlePath, lang) {
     if (!subtitlePath) return;
     showStatus(`Repairing ${lang.toUpperCase()} Subtitle…`, 'info');
     try {
-        const resp = await fetch('/api/fix-overlaps', {
+        const resp = await fetch('/api/repair/fix-overlaps', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({subtitle_path: subtitlePath}),
@@ -617,6 +634,92 @@ async function doRepair(subtitlePath, lang) {
     } catch (e) {
         showStatus('Repair failed: ' + e.message, 'error');
     }
+}
+
+async function repairSubtitle(entry) {
+    let subtitlePath = null;
+    for (const lang of LANGS) {
+        const st = entry.subtitle_status[lang];
+        if (st && st.present && st.path) {
+            subtitlePath = st.path;
+            break;
+        }
+    }
+    if (!subtitlePath) {
+        showStatus('Kein Subtitle-Pfad für diesen Eintrag gefunden.', 'error');
+        return;
+    }
+    showStatus(`Repair läuft für ${escHtml(entry.video_name)}…`, 'info');
+    try {
+        const resp = await fetch('/api/repair/fix-overlaps', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({subtitle_path: subtitlePath}),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            showStatus(`Repair fehlgeschlagen: ${escHtml(data?.detail?.message || 'Fehler')}`, 'error');
+            return;
+        }
+        if (data.modified) {
+            showStatus(`✅ Repair abgeschlossen: ${data.repositioned} Überlappung(en) behoben.`, 'success');
+        } else {
+            showStatus('✅ Repair: Keine Überlappungen gefunden.', 'success');
+        }
+    } catch (e) {
+        showStatus(`Netzwerkfehler: ${escHtml(String(e))}`, 'error');
+    }
+}
+
+async function repairAll() {
+    const entriesWithSubs = allEntries.filter(entry => {
+        for (const lang of LANGS) {
+            const st = entry.subtitle_status[lang];
+            if (st && st.present && st.path) return true;
+        }
+        return false;
+    });
+
+    if (entriesWithSubs.length === 0) {
+        showStatus('Keine Einträge mit Subtitles gefunden.', 'warning');
+        return;
+    }
+
+    let fixed = 0;
+    let totalRepositioned = 0;
+    let errors = 0;
+    const total = entriesWithSubs.length;
+
+    for (let i = 0; i < entriesWithSubs.length; i++) {
+        const entry = entriesWithSubs[i];
+        showStatus(`Repair läuft (${i + 1}/${total})…`, 'info');
+        let subtitlePath = null;
+        for (const lang of LANGS) {
+            const st = entry.subtitle_status[lang];
+            if (st && st.present && st.path) {
+                subtitlePath = st.path;
+                break;
+            }
+        }
+        if (!subtitlePath) continue;
+        try {
+            const resp = await fetch('/api/repair/fix-overlaps', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({subtitle_path: subtitlePath}),
+            });
+            const data = await resp.json();
+            if (data.status === 'ok') {
+                totalRepositioned += data.repositioned || 0;
+                fixed++;
+            } else {
+                errors++;
+            }
+        } catch (_) { errors++; }
+    }
+
+    const msg = `Repair All abgeschlossen: ${totalRepositioned} Überlappungen in ${fixed} Dateien behoben.${errors > 0 ? ` ${errors} Fehler.` : ''}`;
+    showStatus(msg, errors > 0 ? 'error' : 'success');
 }
 
 async function doScan() {
@@ -810,7 +913,7 @@ async function executeBatchRepair() {
 
     for (const se of subtitleEntries) {
         try {
-            const resp = await fetch('/api/fix-overlaps', {
+            const resp = await fetch('/api/repair/fix-overlaps', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({subtitle_path: se.path}),
