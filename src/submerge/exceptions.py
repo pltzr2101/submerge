@@ -1,4 +1,5 @@
 """Shared exception types for the submerge package."""
+
 from __future__ import annotations
 
 

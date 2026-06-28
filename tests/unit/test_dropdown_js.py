@@ -8,8 +8,7 @@ from pathlib import Path
 
 def _read_index_html() -> str:
     html_path = (
-        Path(__file__).parent.parent.parent
-        / "src" / "submerge" / "templates" / "index.html"
+        Path(__file__).parent.parent.parent / "src" / "submerge" / "templates" / "index.html"
     )
     return html_path.read_text(encoding="utf-8")
 
@@ -42,11 +41,10 @@ class TestDropdownJS:
         # The pattern uses forEach with an arrow function on window.addEventListener
         m = re.search(
             r"_menuOpenedAt.*?addEventListener\s*\(.*?(?:scroll|resize|evt)",
-            html, re.DOTALL,
+            html,
+            re.DOTALL,
         )
-        assert m is not None, (
-            "scroll/resize listeners must check _menuOpenedAt for debounce guard"
-        )
+        assert m is not None, "scroll/resize listeners must check _menuOpenedAt for debounce guard"
 
     def test_vertical_clamp_present(self):
         html = _read_index_html()
@@ -54,6 +52,4 @@ class TestDropdownJS:
         assert "viewportHeight" in body or "innerHeight" in body, (
             "toggleActionMenu must compute viewport height for vertical clamping"
         )
-        assert "rect.top" in body, (
-            "toggleActionMenu must reference rect.top for upward flip"
-        )
+        assert "rect.top" in body, "toggleActionMenu must reference rect.top for upward flip"

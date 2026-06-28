@@ -66,10 +66,26 @@ class TestActionMenuCSS:
         assert "z-index: 9999" in open_block or "z-index:9999" in open_block
         assert "pointer-events: all" in open_block or "pointer-events:all" in open_block
 
-    def test_action_dropdown_has_isolation(self):
+    def test_action_dropdown_has_no_isolation(self):
         css = _read_css()
         block = _extract_rule(css, r"\.action-dropdown(?![\.\-\w])")
-        assert "isolation: isolate" in block
+        assert "isolation" not in block, (
+            ".action-dropdown must not set isolation:isolate (breaks position:fixed in Safari)"
+        )
+
+    def test_action_menu_open_has_explicit_background(self):
+        css = _read_css()
+        open_block = _extract_rule(css, r"\.action-menu\.open")
+        assert "background-color" in open_block, (
+            ".action-menu.open must declare background-color explicitly for correct compositing"
+        )
+
+    def test_action_menu_btn_has_z_index(self):
+        css = _read_css()
+        block = _extract_rule(css, r"\.action-menu-btn(?![\.\-\w])")
+        assert "z-index" in block or "z-index :" in block, (
+            ".action-menu-btn must have z-index to stay below the dropdown (z-index:9999)"
+        )
 
     def test_action_menu_item_is_block_level_full_width(self):
         css = _read_css()
