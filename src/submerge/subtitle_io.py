@@ -8,17 +8,18 @@ from pathlib import Path
 import pysubs2
 from pysubs2 import SSAFile
 
+from .exceptions import InvalidSubtitleError
+
 logger = logging.getLogger(__name__)
 
 
 def _load_subtitle_file(path: Path) -> SSAFile:
     """Load a subtitle file with encoding handling."""
-    # Lazy import to avoid circular dependency (merge.py re-exports this function)
-    from .merge import InvalidSubtitleError  # noqa: PLC0415
-
     try:
         # pysubs2 handles encoding detection automatically
         return pysubs2.load(str(path), encoding="utf-8")
+    except pysubs2.UnknownFileExtensionError as e:
+        raise InvalidSubtitleError(f"Unsupported subtitle format: {path.suffix}") from e
     except UnicodeDecodeError:
         # Fallback: use charset_normalizer for robust auto-detection
         logger.warning(f"UTF-8 encoding failed for {path.name}, auto-detecting...")

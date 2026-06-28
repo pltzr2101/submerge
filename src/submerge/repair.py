@@ -10,8 +10,10 @@ import copy
 import logging
 from pathlib import Path
 
+import pysubs2
 from pysubs2 import SSAFile
 
+from .exceptions import InvalidSubtitleError
 from .subtitle_io import _load_subtitle_file
 
 logger = logging.getLogger(__name__)
@@ -95,7 +97,11 @@ def fix_overlaps_in_file(subtitle_path: Path) -> dict:
     if not subtitle_path.exists():
         raise FileNotFoundError(f"File not found: {subtitle_path}")
 
-    subs = _load_subtitle_file(subtitle_path)
+    try:
+        subs = _load_subtitle_file(subtitle_path)
+    except pysubs2.UnknownFileExtensionError as e:
+        raise InvalidSubtitleError(f"Unsupported subtitle format: {subtitle_path.suffix}") from e
+
     fixed, count = fix_single_track_overlaps(subs)
 
     if count > 0:

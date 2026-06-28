@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from ..api import validate_path
-from ..merge import InvalidSubtitleError
+from ..exceptions import InvalidSubtitleError
 from ..repair import fix_overlaps_in_file
 
 logger = logging.getLogger(__name__)

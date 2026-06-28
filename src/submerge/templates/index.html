@@ -335,7 +335,7 @@ function renderRowActions(entry, idx) {
     // Dropdown nur rendern wenn menuItems vorhanden
     const dropdownHtml = menuItems ? `
     <div class="action-dropdown">
-      <button class="action-menu-btn" onclick="toggleMenu('${menuId}')" title="Weitere Aktionen" aria-haspopup="true">
+      <button class="action-menu-btn" onclick="toggleActionMenu('${menuId}', this)" title="Weitere Aktionen" aria-haspopup="true">
         ${svgIcon('dots', 16)}
       </button>
       <div class="action-menu" id="${menuId}">
@@ -350,16 +350,46 @@ function renderRowActions(entry, idx) {
     </div>`;
 }
 
-function toggleMenu(menuId) {
+function toggleActionMenu(menuId, triggerBtn) {
     const menu = document.getElementById(menuId);
+    if (!menu) return;
+
     const isOpen = menu.classList.contains('open');
-    closeAllMenus();
-    if (!isOpen) menu.classList.add('open');
+
+    // Close all other open menus first
+    document.querySelectorAll('.action-menu.open').forEach(m => {
+        if (m.id !== menuId) m.classList.remove('open');
+    });
+
+    if (isOpen) {
+        menu.classList.remove('open');
+        return;
+    }
+
+    // Position relative to viewport (for position: fixed)
+    const rect = triggerBtn.getBoundingClientRect();
+    const menuWidth = 210;
+    const viewportWidth = window.innerWidth;
+
+    let left = rect.right - menuWidth;
+    if (left < 8) left = 8;
+    if (left + menuWidth > viewportWidth - 8) left = viewportWidth - menuWidth - 8;
+
+    menu.style.top = (rect.bottom + 4) + 'px';
+    menu.style.left = left + 'px';
+    menu.classList.add('open');
 }
 
 function closeAllMenus() {
     document.querySelectorAll('.action-menu.open').forEach(m => m.classList.remove('open'));
 }
+
+// Close menus on scroll / resize
+['scroll', 'resize'].forEach(evt =>
+    window.addEventListener(evt, () => {
+        document.querySelectorAll('.action-menu.open').forEach(m => m.classList.remove('open'));
+    }, { passive: true })
+);
 
 function renderTable() {
     const tbody = document.getElementById('mediaTbody');

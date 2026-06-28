@@ -12,11 +12,8 @@ from pathlib import Path
 import pysubs2
 import pytest
 
-from submerge.merge import (
-    InvalidSubtitleError,
-    MergeConfig,
-    merge_bilingual,
-)
+from submerge.exceptions import InvalidSubtitleError
+from submerge.merge import MergeConfig, merge_bilingual
 
 
 class TestMergeBilingual:
@@ -149,6 +146,27 @@ class TestDeduplication:
         bottom_events = [e for e in subs if e.style == "bottom"]
         hello_events = [e for e in bottom_events if e.plaintext == "Hello"]
         assert len(hello_events) == 1
+
+
+class TestInvalidSubtitleErrorImport:
+    """Verify InvalidSubtitleError is importable from exceptions module."""
+
+    def test_importable_from_exceptions(self):
+        from submerge.exceptions import InvalidSubtitleError
+
+        assert issubclass(InvalidSubtitleError, Exception)
+
+    def test_re_export_via_merge_still_works(self):
+        """Backward-compatible re-export from merge.py."""
+        from submerge.merge import InvalidSubtitleError
+
+        assert issubclass(InvalidSubtitleError, Exception)
+
+    def test_same_class_via_both_paths(self):
+        from submerge.exceptions import InvalidSubtitleError as E1
+        from submerge.merge import InvalidSubtitleError as E2
+
+        assert E1 is E2
 
 
 class TestInlineTagCleanup:

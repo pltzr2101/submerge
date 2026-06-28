@@ -529,7 +529,7 @@ legend {
 }
 
 /* ── Row Action Dropdown ─────────────────────────── */
-.action-dropdown { position: relative; display: inline-block; }
+.action-dropdown { position: relative; display: inline-block; isolation: isolate; }
 
 .action-menu-btn {
   display: inline-flex;
@@ -554,8 +554,6 @@ legend {
 
 .action-menu {
   position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
   min-width: 210px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -564,8 +562,16 @@ legend {
   z-index: 200;
   overflow: hidden;
   display: none;
+  pointer-events: none;
 }
-.action-menu.open { display: flex; flex-direction: column; }
+.action-menu.open {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  z-index: 9999;
+  min-width: 210px;
+  pointer-events: all;
+}
 
 .action-menu-item {
   display: flex;

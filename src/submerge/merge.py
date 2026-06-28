@@ -13,11 +13,9 @@ from typing import Literal
 
 from pysubs2 import Alignment, Color, SSAFile, SSAStyle
 
+from .exceptions import InvalidSubtitleError  # noqa: F401  (re-export for callers)
+
 logger = logging.getLogger(__name__)
-
-
-class InvalidSubtitleError(Exception):
-    """Invalid or unparseable subtitle file."""
 
 
 @dataclass
