@@ -34,8 +34,11 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
+      # NOTE: GHCR occasionally returns "unknown blob" on push even after a
+      # successful build. This is a transient registry-side error, not an
+      # application bug — re-running the workflow typically resolves it.
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true

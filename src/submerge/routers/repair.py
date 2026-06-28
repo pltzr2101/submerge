@@ -131,9 +131,7 @@ async def api_batch_fix_overlaps(request: Request):
         result = repair_subtitle_paths(validated, exclude_patterns=exclude_patterns)
     except Exception as e:
         logger.error(f"repair batch-fix-overlaps error: {e}")
-        raise HTTPException(
-            status_code=500, detail={"status": "error", "message": str(e)}
-        ) from e
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
     logger.info(
         "batch-repair: %d paths → %d fixed, %d skipped, %d failed",
