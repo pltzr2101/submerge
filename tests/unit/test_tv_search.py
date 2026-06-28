@@ -10,8 +10,8 @@ import re
 
 
 def parse_tv_path(video_path: str) -> dict | None:
-    """Python port of parseTvPath(). Uses dot-extension heuristic to distinguish
-    season folders from episode files. Supports sub-season directories."""
+    """Python port of parseTvPath(). Uses video file extension heuristic
+    to distinguish season folders from episode files. Supports sub-season directories."""
     p = video_path.replace("\\", "/")
     idx = p.find("/tv/")
     if idx == -1:
@@ -23,9 +23,8 @@ def parse_tv_path(video_path: str) -> dict | None:
     if len(segments) > 1:
         result["seriesName"] = segments[1]
     if len(segments) > 2:
-        # Walk remaining segments; the first one without a dot is the season
         for seg in segments[2:]:
-            if "." in seg:
+            if re.search(r"\.(mkv|mp4|avi|mov|ts|m4v|wmv|flv|webm)$", seg, re.IGNORECASE):
                 break  # hit the episode file
             if result["seasonName"] is None:
                 result["seasonName"] = seg
@@ -125,6 +124,18 @@ class TestParseTvPath:
         assert r is not None
         assert r["seriesName"] == "Arcane"
         assert r["seasonName"] == "Season 3"
+
+    def test_season_folder_with_dot(self):
+        r = parse_tv_path("/mnt/media/tv/Show/Season.1/ep.mkv")
+        assert r is not None
+        assert r["seriesName"] == "Show"
+        assert r["seasonName"] == "Season.1"
+
+    def test_season_folder_staffel(self):
+        r = parse_tv_path("/mnt/media/tv/Show/Staffel.1/ep.mkv")
+        assert r is not None
+        assert r["seriesName"] == "Show"
+        assert r["seasonName"] == "Staffel.1"
 
 
 class TestNormalizeSearch:

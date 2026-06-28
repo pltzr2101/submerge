@@ -185,6 +185,24 @@ document.addEventListener('DOMContentLoaded', () => {
             renderTable();
         });
     }
+
+    // Delegated click handler for collapsible group rows — avoids inline onclick XSS risk
+    document.getElementById('mediaTbody').addEventListener('click', (e) => {
+        const seriesRow = e.target.closest('.group-header-series');
+        if (seriesRow) {
+            const sn = seriesRow.dataset.series;
+            collapsedSeries.has(sn) ? collapsedSeries.delete(sn) : collapsedSeries.add(sn);
+            renderTable();
+            return;
+        }
+        const seasonRow = e.target.closest('.group-header-season');
+        if (seasonRow) {
+            const sk = seasonRow.dataset.seasonKey;
+            collapsedSeasons.has(sk) ? collapsedSeasons.delete(sk) : collapsedSeasons.add(sk);
+            renderTable();
+        }
+    });
+
     document.getElementById('btnScan').addEventListener('click', doScan);
     document.getElementById('btnBatchMerge').addEventListener('click', showBatchMergeModal);
     document.getElementById('btnModalConfirm').addEventListener('click', executeMerge);
@@ -267,8 +285,10 @@ function getMediaType(entry) {
 /**
  * Parse a video path into {seriesName, seasonName} for TV entries.
  *
- * Uses a dot-extension heuristic: after the series folder, the first segment
- * without a "." is the season; the first segment with a "." is the episode file.
+ * Uses a video file extension heuristic: after the series folder, segments
+ * that match a known video extension (mkv, mp4, avi, …) are treated as the
+ * episode file.  Dot-only season folder names (e.g. "Season.1", "Staffel.1")
+ * are correctly recognised as folders, not files.
  * Returns null for paths without a /tv/ segment.
  */
 function parseTvPath(videoPath) {
@@ -282,7 +302,7 @@ function parseTvPath(videoPath) {
     if (segments.length > 2) {
         for (let i = 2; i < segments.length; i++) {
             const seg = segments[i];
-            if (seg.includes('.')) break;  // episode file
+            if (/\.(mkv|mp4|avi|mov|ts|m4v|wmv|flv|webm)$/i.test(seg)) break;  // episode file
             if (result.seasonName === null) result.seasonName = seg;
         }
     }
@@ -586,7 +606,7 @@ function renderTable() {
 
         // Series header
         const seriesChevron = seriesCollapsed ? '▶' : '▼';
-        html += `<tr class="group-header-series" onclick="collapsedSeries.has('${escAttr(seriesName)}') ? collapsedSeries.delete('${escAttr(seriesName)}') : collapsedSeries.add('${escAttr(seriesName)}'); renderTable();">
+        html += `<tr class="group-header-series" data-series="${escAttr(seriesName)}">
             <td colspan="${colspan}">
                 <span class="group-chevron${seriesCollapsed ? '' : ' open'}">${seriesChevron}</span>
                 ${escHtml(seriesName)}
@@ -604,7 +624,7 @@ function renderTable() {
             // Season sub-header
             const seasonLabel = seasonName === '?' ? 'No season folder' : seasonName;
             const seasonChevron = seasonCollapsed ? '▶' : '▼';
-            html += `<tr class="group-header-season" onclick="collapsedSeasons.has('${escAttr(seasonKey)}') ? collapsedSeasons.delete('${escAttr(seasonKey)}') : collapsedSeasons.add('${escAttr(seasonKey)}'); renderTable();">
+            html += `<tr class="group-header-season" data-season-key="${escAttr(seasonKey)}">
                 <td colspan="${colspan}">
                     <span class="group-chevron${seasonCollapsed ? '' : ' open'}">${seasonChevron}</span>
                     ${escHtml(seasonLabel)}
