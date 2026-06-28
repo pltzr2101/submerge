@@ -13,6 +13,13 @@ def _read_index_html() -> str:
     return html_path.read_text(encoding="utf-8")
 
 
+def _read_settings_html() -> str:
+    html_path = (
+        Path(__file__).parent.parent.parent / "src" / "submerge" / "templates" / "settings.html"
+    )
+    return html_path.read_text(encoding="utf-8")
+
+
 def _extract_toggle_body(html: str) -> str:
     """Extract the toggleActionMenu function body.
 
@@ -142,3 +149,16 @@ class TestTvSearch:
         html = _read_index_html()
         assert 'id="searchInput"' in html, "Toolbar must contain a search input with id=searchInput"
         assert 'class="search-input"' in html, "Search input must have class=search-input"
+
+    def test_settings_repair_before_merge_checkbox_present(self):
+        """settings.html must have a repairBeforeMerge checkbox for Bug 1."""
+        html = _read_settings_html()
+        assert 'id="repairBeforeMerge"' in html, (
+            "settings.html schedule form must contain repairBeforeMerge checkbox"
+        )
+        assert 'name="repair_before_merge"' in html, (
+            "repairBeforeMerge input must have name=repair_before_merge"
+        )
+        assert "Repair subtitles before auto-merge" in html, (
+            "settings.html must display the repair_before_merge label text"
+        )

@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 from pysubs2 import SSAEvent, SSAFile
 
-from submerge.repair import fix_overlaps_in_file, fix_single_track_overlaps
+from submerge.repair import (
+    fix_overlaps_in_file,
+    fix_single_track_overlaps,
+    repair_all_subtitles_in_root,
+)
 
 
 def _make_subs(events: list[tuple[int, int, str]], fmt: str = "ass") -> SSAFile:
@@ -98,3 +102,41 @@ class TestFixOverlapsInFile:
     def test_file_not_found_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             fix_overlaps_in_file(tmp_path / "nonexistent.srt")
+
+
+class TestRepairAllSubtitlesInRoot:
+    def test_all_clean_no_modifications(self, tmp_path):
+        """When every .srt is clean, fixed=0 and files are untouched."""
+        for i in range(3):
+            s = _make_subs([(0, 1000, f"Line {i}")], fmt="srt")
+            s.save(str(tmp_path / f"clean_{i}.srt"))
+        result = repair_all_subtitles_in_root(tmp_path)
+        assert result["total"] == 3
+        assert result["fixed"] == 0
+
+    def test_some_overlapping_get_repaired(self, tmp_path):
+        """Overlapping .srt files are repaired; clean ones are skipped."""
+        clean = _make_subs([(0, 1000, "ok")], fmt="srt")
+        clean.save(str(tmp_path / "clean.srt"))
+
+        bad = _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt")
+        bad.save(str(tmp_path / "bad.srt"))
+
+        result = repair_all_subtitles_in_root(tmp_path)
+        assert result["total"] == 2
+        assert result["fixed"] == 1
+
+    def test_non_srt_files_ignored(self, tmp_path):
+        """Only .srt files are targeted; .ass and others are skipped."""
+        s = _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="ass")
+        s.save(str(tmp_path / "test.ass"))
+        result = repair_all_subtitles_in_root(tmp_path)
+        assert result["total"] == 0
+        assert result["fixed"] == 0
+
+    def test_unparseable_file_skipped(self, tmp_path):
+        """A binary .srt file is skipped gracefully (total incremented, fixed not)."""
+        (tmp_path / "binary.srt").write_bytes(b"\x00\x01\x02")
+        result = repair_all_subtitles_in_root(tmp_path)
+        assert result["total"] == 1
+        assert result["fixed"] == 0

@@ -212,19 +212,22 @@ class TestSearchFilter:
         result = []
         for e in entries:
             n_name = normalize_search(e["video_name"])
-            if len(nq) <= 3:
+            n_file = normalize_search(
+                (e.get("video_path", "") or "").replace("\\", "/").split("/")[-1]
+            )
+            if len(nq) <= 2:
                 info = parse_tv_path(e.get("video_path", ""))
                 n_series = (
                     normalize_search(info["seriesName"]) if info and info["seriesName"] else ""
                 )
-                if (n_series and nq in n_series) or n_name.startswith(nq):
+                if (n_series and nq in n_series) or n_name.startswith(nq) or n_file.startswith(nq):
                     result.append(e)
             else:
                 info = parse_tv_path(e.get("video_path", ""))
                 n_series = (
                     normalize_search(info["seriesName"]) if info and info["seriesName"] else ""
                 )
-                if nq in n_name or (n_series and nq in n_series):
+                if nq in n_name or (n_series and nq in n_series) or nq in n_file:
                     result.append(e)
         return result
 
@@ -269,25 +272,30 @@ class TestSearchFilter:
         assert "D.P." in result[0]["video_name"]
 
     def test_short_query_starts_with_match(self):
-        # Short query should also match via startsWith on video_name
+        """Short query threshold is now ≤2.  Three-char queries like 'bre'
+        use the long-query path (full includes), so this test uses a
+        query whose length is 2 to stay in the short-query path."""
         entries = [
             {
-                "video_name": "BreakingBad.S01E01.mkv",
-                "video_path": "/tv/BreakingBad/Season 1/e01.mkv",
+                "video_name": "An.Show.S01E01.mkv",
+                "video_path": "/tv/An Show/Season 1/e01.mkv",
                 "type": "tv",
             },
             {
-                "video_name": "NotBreakingBad.mkv",
-                "video_path": "/tv/Other/Season 1/e01.mkv",
+                "video_name": "AnotherShow.S01E01.mkv",
+                "video_path": "/tv/AnotherShow/Season 1/e01.mkv",
                 "type": "tv",
             },
         ]
-        result = self._apply_search(entries, "bre")
-        # "bre" (len 3 ≤ 3): startsWith on nName "breakingbads01e01" → true,
-        # nSeries "breakingbad" includes "bre" → true.
-        # "notbreakingbad" startsWith "bre" → false, nSeries="other" → false.
-        assert len(result) == 1
-        assert "BreakingBad" in result[0]["video_name"]
+        result = self._apply_search(entries, "an")
+        # "an" (len 2 ≤ 2): short-query path
+        # nSeries "anshow" includes "an" → entry 1 matches via seriesName
+        # nName "anshows01e01" startsWith "an" → entry 1 matches
+        # nSeries "anothershow" includes "an" → entry 2 also matches via seriesName!
+        # But "an" and "another" are different series — both will match seriesName.
+        # The actual renderTable handles this at a different layer (grouping).
+        # Here we just verify both pass the filter.
+        assert len(result) == 2
 
     def test_short_query_starts_with_isolated(self):
         """startsWith branch: seriesName does NOT contain the query, but
@@ -324,6 +332,53 @@ class TestSearchFilter:
             },
         ]
         result = self._apply_search(entries, "frieren")
+        assert len(result) == 1
+        assert "Frieren" in result[0]["video_name"]
+
+    def test_s01_query_matches_via_includes(self):
+        """Query 'S01' (3 chars, now >2 → long-query path) must match episode
+        codes like S01E01 in video_name via full includes."""
+        entries = [
+            {
+                "video_name": "Frieren.S01E03.mkv",
+                "video_path": "/tv/Frieren/Season 1/f.mkv",
+                "type": "tv",
+            },
+            {
+                "video_name": "Arcane.S02E01.mkv",
+                "video_path": "/tv/Arcane/Season 2/a.mkv",
+                "type": "tv",
+            },
+        ]
+        result = self._apply_search(entries, "S01")
+        # nq = "s01" (len 3 > 2 → long-query path, full includes)
+        # nName "frierens01e03" contains "s01" → match
+        # nName "arcanes02e01" does NOT contain "s01" → no match
+        assert len(result) == 1
+        assert "Frieren" in result[0]["video_name"]
+
+    def test_combined_query_matches_filename_via_videopath_fallback(self):
+        """Query 'frieren S01E03' → nq='frierens01e03' (len 13 > 2).
+        If video_name only contains the series name (no episode code),
+        the video_path filename fallback ensures the query still matches."""
+        entries = [
+            {
+                # video_name lacks episode code — common with CleanNames=False
+                "video_name": "Frieren.mkv",
+                "video_path": "/tv/Frieren/Season 1/Frieren.S01E03.1080p.mkv",
+                "type": "tv",
+            },
+            {
+                "video_name": "Arcane.S02E01.mkv",
+                "video_path": "/tv/Arcane/Season 2/a.mkv",
+                "type": "tv",
+            },
+        ]
+        result = self._apply_search(entries, "frieren S01E03")
+        # nq = "frierens01e03"
+        # Entry 1: nName = "frieren" → does NOT contain "frierens01e03"
+        #          nFile = "frierens01e031080pmkv" → CONTAINS "frierens01e03" → match
+        # Entry 2: nName = "arcanes02e01" → no, nFile = "amkv" → no
         assert len(result) == 1
         assert "Frieren" in result[0]["video_name"]
 

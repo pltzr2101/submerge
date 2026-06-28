@@ -115,3 +115,37 @@ def fix_overlaps_in_file(subtitle_path: Path) -> dict:
         "output_path": str(subtitle_path),
         "modified": count > 0,
     }
+
+
+def repair_all_subtitles_in_root(media_root: Path) -> dict:
+    """Walk *media_root* and repair every ``.srt`` subtitle file in-place.
+
+    Skips files that cannot be parsed (e.g. unknown extension, binary
+    garbage) and logs a warning.  Only touches files that actually
+    contain overlapping events.
+
+    Args:
+        media_root: Root directory to search recursively.
+
+    Returns:
+        Dict with ``fixed`` (number of files modified) and ``total``
+        (number of .srt files inspected).
+    """
+    from pathlib import Path
+
+    total = 0
+    fixed = 0
+    for srt_path in Path(media_root).rglob("*.srt"):
+        total += 1
+        try:
+            result = fix_overlaps_in_file(srt_path)
+            if result["modified"]:
+                fixed += 1
+        except (InvalidSubtitleError, OSError) as e:
+            logger.warning(
+                "Skipping unrepairable subtitle %s: %s",
+                srt_path,
+                e,
+            )
+    logger.info("repair-all: %d/%d .srt files repaired", fixed, total)
+    return {"fixed": fixed, "total": total}

@@ -53,3 +53,28 @@ async def _start_and_check(sched_mod):
     sched_mod.start_scheduler(None)
     assert sched_mod._schedule_merge_lock is not None
     sched_mod.stop_scheduler()
+
+
+class TestScheduleDefaults:
+    def test_defaults_include_repair_before_merge(self, monkeypatch):
+        """_get_schedule_defaults must return repair_before_merge key."""
+        sched_mod = _get_schedule_mod()
+        monkeypatch.setattr(
+            sched_mod,
+            "_load_app_settings",
+            lambda: {},
+        )
+        defaults = sched_mod._get_schedule_defaults()
+        assert "repair_before_merge" in defaults
+        assert defaults["repair_before_merge"] is False
+
+    def test_repair_before_merge_true_when_set(self, monkeypatch):
+        """repair_before_merge=True is returned when the app setting has it."""
+        sched_mod = _get_schedule_mod()
+        monkeypatch.setattr(
+            sched_mod,
+            "_load_app_settings",
+            lambda: {"repair_before_merge": True},
+        )
+        defaults = sched_mod._get_schedule_defaults()
+        assert defaults["repair_before_merge"] is True

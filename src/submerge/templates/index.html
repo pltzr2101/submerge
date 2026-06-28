@@ -560,24 +560,20 @@ function renderTable() {
         const nq = normalizeSearch(currentSearch);
         filtered = filtered.filter(e => {
             const nName = normalizeSearch(e.video_name);
+            const nFileName = normalizeSearch(
+                (e.video_path || '').replace(/\\/g, '/').split('/').pop());
 
-            // For short queries (≤3 chars after normalization): only match
-            // against series name or the *beginning* of the video name —
-            // prevents "dp" matching every file that happens to contain
-            // those letters somewhere in the full filename.
-            if (nq.length <= 3) {
+            if (nq.length <= 2) {
                 const seriesInfo = parseTvPath(e.video_path);
                 const nSeries = seriesInfo && seriesInfo.seriesName
                     ? normalizeSearch(seriesInfo.seriesName) : '';
-                return nSeries.includes(nq) || nName.startsWith(nq);
+                return nSeries.includes(nq) || nName.startsWith(nq) || nFileName.startsWith(nq);
             }
 
-            // For longer queries: full includes match against video_name
-            // (episode-specific search like "Frieren S01E03") AND series name.
             const seriesInfo = parseTvPath(e.video_path);
             const nSeries = seriesInfo && seriesInfo.seriesName
                 ? normalizeSearch(seriesInfo.seriesName) : '';
-            return nName.includes(nq) || nSeries.includes(nq);
+            return nName.includes(nq) || nSeries.includes(nq) || nFileName.includes(nq);
         });
     }
 

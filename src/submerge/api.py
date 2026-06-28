@@ -224,7 +224,27 @@ def create_app() -> FastAPI:
 
             async def _startup_merge():
                 await asyncio.sleep(10)
+                app = _load_app_settings()
                 logger.info("Startup auto-merge triggered")
+
+                if app.get("repair_before_merge", False):
+                    from .repair import repair_all_subtitles_in_root
+
+                    s2 = _get_schedule_merge_settings()
+                    logger.info("Startup repair-before-merge starting …")
+                    try:
+                        loop = asyncio.get_running_loop()
+                        r = await loop.run_in_executor(
+                            None, repair_all_subtitles_in_root, s2.media_root
+                        )
+                        logger.info(
+                            "Startup repair-before-merge done: %d/%d .srt files repaired",
+                            r["fixed"],
+                            r["total"],
+                        )
+                    except Exception as exc:
+                        logger.error(f"Startup repair-before-merge failed: {exc}")
+
                 try:
                     s = _get_schedule_merge_settings()
                     loop = asyncio.get_running_loop()

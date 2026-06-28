@@ -34,6 +34,7 @@ def _get_schedule_defaults() -> dict[str, Any]:
         "schedule_time": app.get("schedule_time", "03:00"),
         "run_on_startup": app.get("run_on_startup", False),
         "schedule_template": app.get("schedule_template", ""),
+        "repair_before_merge": app.get("repair_before_merge", False),
     }
 
 
@@ -122,10 +123,30 @@ async def _execute_scheduled_merge():
         return
 
     async with _schedule_merge_lock:
+        from ..repair import repair_all_subtitles_in_root
         from ..routers.scanner import _run_scan
 
         settings = _get_schedule_merge_settings()
-        template = _load_app_settings().get("schedule_template", "") or "(default)"
+        app_settings = _load_app_settings()
+        template = app_settings.get("schedule_template", "") or "(default)"
+
+        if app_settings.get("repair_before_merge", False):
+            logger.info("Scheduled repair-before-merge starting …")
+            try:
+                loop = asyncio.get_running_loop()
+                repair_result = await loop.run_in_executor(
+                    None,
+                    repair_all_subtitles_in_root,
+                    settings.media_root,
+                )
+                logger.info(
+                    "Scheduled repair-before-merge done: %d/%d .srt files repaired",
+                    repair_result["fixed"],
+                    repair_result["total"],
+                )
+            except Exception as exc:
+                logger.error(f"Scheduled repair-before-merge failed: {exc}")
+
         logger.info(f"Scheduled auto-merge job started (template: {template})")
         try:
             loop = asyncio.get_running_loop()
@@ -194,6 +215,9 @@ async def api_set_schedule(request: Request):
                         },
                     )
             app_settings["schedule_template"] = val
+
+        if "repair_before_merge" in body:
+            app_settings["repair_before_merge"] = bool(body["repair_before_merge"])
 
         _save_app_settings(app_settings)
         restart_scheduler()

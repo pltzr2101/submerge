@@ -116,6 +116,14 @@
                     </label>
                 </div>
 
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="repairBeforeMerge" name="repair_before_merge">
+                        Repair subtitles before auto-merge
+                    </label>
+                    <small class="text-muted">Fixes overlap errors in all .srt files before the merge run starts.</small>
+                </div>
+
                 <span id="scheduleStatus" class="schedule-hint">Loading...</span>
                 <button type="submit" class="btn btn-primary" style="margin-top:8px">Save Schedule</button>
             </form>
@@ -155,6 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const d = !enabledCb.checked;
         timeInput.disabled = d;
         startupCb.disabled = d;
+        document.getElementById('repairBeforeMerge').disabled = d;
     }
     enabledCb.addEventListener('change', setDisabledState);
 
@@ -165,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
             schedule_time: timeInput.value,
             run_on_startup: startupCb.checked,
             schedule_template: tmplSelect.value,
+            repair_before_merge: document.getElementById('repairBeforeMerge').checked,
         };
         try {
             const resp = await fetch('/api/settings/schedule', {
@@ -203,6 +213,7 @@ async function loadSchedule() {
         document.getElementById('scheduleTime').value = s.schedule_time;
         document.getElementById('runOnStartup').checked = s.run_on_startup;
         document.getElementById('scheduleTemplate').value = s.schedule_template;
+        document.getElementById('repairBeforeMerge').checked = s.repair_before_merge || false;
         setDisabledState();
         updateScheduleStatus(s);
     } catch (e) {
@@ -219,7 +230,8 @@ function updateScheduleStatus(s) {
     } else {
         el.textContent = 'Next job: daily at ' + s.schedule_time
             + (s.schedule_template ? '  ·  template: ' + s.schedule_template : '')
-            + (s.run_on_startup ? '  ·  also on startup' : '');
+            + (s.run_on_startup ? '  ·  also on startup' : '')
+            + (s.repair_before_merge ? '  ·  repair before merge' : '');
     }
 }
 
@@ -256,6 +268,7 @@ function setDisabledState() {
     const enabled = document.getElementById('autoMergeEnabled').checked;
     document.getElementById('scheduleTime').disabled = !enabled;
     document.getElementById('runOnStartup').disabled = !enabled;
+    document.getElementById('repairBeforeMerge').disabled = !enabled;
 }
 
 function showSettingsStatus(msg, type) {
