@@ -142,6 +142,9 @@
         <div class="log-entry">Connecting to log stream...</div>
     </div>
 </div>
+
+<div id="dropdown-portal"></div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -351,52 +354,87 @@ function renderRowActions(entry, idx) {
 }
 
 let _menuOpenedAt = 0;
+let _activeMenuEl = null;
+let _activeMenuOriginId = null;
 
+/**
+ * Open/close a dropdown action menu via a portal (mounted to #dropdown-portal).
+ *
+ * Two-stage rendering: clone the source menu, append it invisibly to measure its
+ * real rendered height, then compute and set the correct viewport position before
+ * making it visible.  This avoids hard-coded height assumptions.
+ */
 function toggleActionMenu(menuId, triggerBtn) {
-    // Prevent the click from bubbling to the document click-outside handler
     event.stopPropagation();
 
-    const menu = document.getElementById(menuId);
-    if (!menu) return;
+    const isAlreadyOpen = _activeMenuOriginId === menuId && _activeMenuEl !== null;
+    closeAllMenus();
+    if (isAlreadyOpen) return;
 
-    const isOpen = menu.classList.contains('open');
+    const originMenu = document.getElementById(menuId);
+    if (!originMenu) return;
 
-    // Close all other open menus first
-    document.querySelectorAll('.action-menu.open').forEach(m => {
-        if (m.id !== menuId) m.classList.remove('open');
-    });
+    const portal = document.getElementById('dropdown-portal');
+    const clone = originMenu.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.setAttribute('data-portal-for', menuId);
 
-    if (isOpen) {
-        menu.classList.remove('open');
-        return;
-    }
+    // Stage 1 — mount invisibly off-viewport to measure real height
+    clone.style.position = 'fixed';
+    clone.style.visibility = 'hidden';
+    clone.style.top = '-9999px';
+    clone.style.left = '-9999px';
+    clone.style.display = 'flex';
+    clone.style.flexDirection = 'column';
+    clone.style.minWidth = '210px';
+    clone.style.zIndex = '99999';
+    clone.style.pointerEvents = 'all';
+    clone.style.backgroundColor = 'var(--bg-card)';
+    clone.style.border = '1px solid var(--border)';
+    clone.style.borderRadius = 'var(--radius-lg)';
+    clone.style.boxShadow = '0 8px 32px rgba(0,0,0,0.85)';
+    clone.style.overflow = 'hidden';
 
-    // Position relative to viewport (for position: fixed)
+    portal.innerHTML = '';
+    portal.appendChild(clone);
+
+    // Stage 2 — measure real rendered dimensions
+    const realHeight = clone.offsetHeight;
+    const realWidth = Math.max(clone.offsetWidth, 210);
+
+    // Stage 3 — compute viewport position
     const rect = triggerBtn.getBoundingClientRect();
-    const menuWidth = 210;
-    const menuHeight = 200;
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
-    let left = rect.right - menuWidth;
+    let left = rect.right - realWidth;
     if (left < 8) left = 8;
-    if (left + menuWidth > viewportWidth - 8) left = viewportWidth - menuWidth - 8;
+    if (left + realWidth > viewportWidth - 8) left = viewportWidth - realWidth - 8;
 
     let top = rect.bottom + 4;
-    // If menu would overflow below viewport, flip it upward
-    if (top + menuHeight > viewportHeight - 8) {
-        top = rect.top - menuHeight - 4;
+    if (top + realHeight > viewportHeight - 8) {
+        top = rect.top - realHeight - 4;
     }
-    // Prevent negative top (menu above viewport edge)
     if (top < 8) top = 8;
 
-    menu.style.top = top + 'px';
-    menu.style.left = left + 'px';
-    menu.classList.add('open');
+    // Stage 4 — set final position and reveal
+    clone.style.top = top + 'px';
+    clone.style.left = left + 'px';
+    clone.style.visibility = 'visible';
+
+    _activeMenuEl = clone;
+    _activeMenuOriginId = menuId;
     _menuOpenedAt = Date.now();
 }
 
 function closeAllMenus() {
+    // Close any portal-clone menu
+    if (_activeMenuEl) {
+        _activeMenuEl.remove();
+        _activeMenuEl = null;
+        _activeMenuOriginId = null;
+    }
+    // Also close any inline .action-menu.open (belt and suspenders)
     document.querySelectorAll('.action-menu.open').forEach(m => m.classList.remove('open'));
 }
 

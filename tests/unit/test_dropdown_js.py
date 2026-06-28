@@ -14,9 +14,16 @@ def _read_index_html() -> str:
 
 
 def _extract_toggle_body(html: str) -> str:
-    """Extract everything between 'function toggleActionMenu' and the next top-level
-    'function ' or '// Close menus on scroll'."""
-    m = re.search(r"function toggleActionMenu\(.*?\)\s*\{(.*?)\n\}", html, re.DOTALL)
+    """Extract the toggleActionMenu function body.
+
+    Matches from ``function toggleActionMenu`` through the closing ``}`` of the
+    function, using the next ``function `` keyword as the boundary marker.
+    """
+    m = re.search(
+        r"function toggleActionMenu\(.*?\)\s*\{(.*?)\n\}\s*\n+function ",
+        html,
+        re.DOTALL,
+    )
     return m.group(1) if m else ""
 
 
@@ -53,3 +60,11 @@ class TestDropdownJS:
             "toggleActionMenu must compute viewport height for vertical clamping"
         )
         assert "rect.top" in body, "toggleActionMenu must reference rect.top for upward flip"
+
+    def test_uses_offset_height_measurement(self):
+        html = _read_index_html()
+        body = _extract_toggle_body(html)
+        assert "offsetHeight" in body, (
+            "toggleActionMenu must measure real clone height via offsetHeight "
+            "instead of hard-coding menuHeight"
+        )
