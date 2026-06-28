@@ -103,6 +103,16 @@ class TestFixOverlapsInFile:
         with pytest.raises(FileNotFoundError):
             fix_overlaps_in_file(tmp_path / "nonexistent.srt")
 
+    def test_merged_output_srt_can_be_explicitly_called(self, tmp_path):
+        """fix_overlaps_in_file works on merge-output files — the filter
+        only applies in repair_all_subtitles_in_root, not here."""
+        sub_file = tmp_path / "Movie.de-ko.srt"
+        subs = _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt")
+        subs.save(str(sub_file))
+        result = fix_overlaps_in_file(sub_file)
+        assert result["modified"] is True
+        assert result["repositioned"] >= 1
+
 
 class TestRepairAllSubtitlesInRoot:
     def test_all_clean_no_modifications(self, tmp_path):
@@ -140,3 +150,51 @@ class TestRepairAllSubtitlesInRoot:
         result = repair_all_subtitles_in_root(tmp_path)
         assert result["total"] == 1
         assert result["fixed"] == 0
+
+    def test_merged_output_pattern_skipped(self, tmp_path):
+        """Merge-output files like Movie.de-ko.srt are skipped by default."""
+        overlapped = _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt")
+        files = ["Movie.de-ko.srt", "Movie.en-de.srt", "Episode.S01E01.ja-de.srt"]
+        mtimes_before = {}
+        for name in files:
+            p = tmp_path / name
+            overlapped.save(str(p))
+            mtimes_before[name] = p.stat().st_mtime
+
+        result = repair_all_subtitles_in_root(tmp_path)
+        assert result["total"] == 3
+        assert result["skipped"] == 3
+        assert result["fixed"] == 0
+
+        # Files must remain untouched on disk (mtime unchanged)
+        for name in files:
+            assert (tmp_path / name).stat().st_mtime == mtimes_before[name]
+
+    def test_custom_exclude_patterns(self, tmp_path):
+        """Custom exclude_patterns override the default MERGED_OUTPUT_PATTERNS."""
+        overlapped = _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt")
+
+        # This file should be skipped by the custom pattern
+        overlapped.save(str(tmp_path / "test.custom.srt"))
+        # This file should be repaired
+        overlapped.save(str(tmp_path / "normal.srt"))
+
+        result = repair_all_subtitles_in_root(
+            tmp_path,
+            exclude_patterns=[r"\.custom\.(srt)$"],
+        )
+        assert result["skipped"] == 1
+        assert result["fixed"] == 1
+        assert result["total"] == 2
+
+    def test_no_write_when_no_overlaps_preserves_mtime(self, tmp_path):
+        """Clean .srt files are not written to disk — mtime stays unchanged."""
+        clean = _make_subs([(0, 1000, "Line 1"), (2000, 3000, "Line 2")], fmt="srt")
+        sub_file = tmp_path / "clean.srt"
+        clean.save(str(sub_file))
+        mtime_before = sub_file.stat().st_mtime
+
+        result = repair_all_subtitles_in_root(tmp_path)
+        assert result["total"] == 1
+        assert result["fixed"] == 0
+        assert sub_file.stat().st_mtime == mtime_before

@@ -140,9 +140,10 @@ async def _execute_scheduled_merge():
                     settings.media_root,
                 )
                 logger.info(
-                    "Scheduled repair-before-merge done: %d/%d .srt files repaired",
+                    "Scheduled repair-before-merge done: %d/%d .srt files repaired, %d skipped",
                     repair_result["fixed"],
                     repair_result["total"],
+                    repair_result.get("skipped", 0),
                 )
             except Exception as exc:
                 logger.error(f"Scheduled repair-before-merge failed: {exc}")

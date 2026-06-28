@@ -238,9 +238,11 @@ def create_app() -> FastAPI:
                             None, repair_all_subtitles_in_root, s2.media_root
                         )
                         logger.info(
-                            "Startup repair-before-merge done: %d/%d .srt files repaired",
+                            "Startup repair-before-merge done: "
+                            "%d/%d .srt files repaired, %d skipped",
                             r["fixed"],
                             r["total"],
+                            r.get("skipped", 0),
                         )
                     except Exception as exc:
                         logger.error(f"Startup repair-before-merge failed: {exc}")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 from pathlib import Path
 
 import pysubs2
@@ -17,6 +18,14 @@ from .exceptions import InvalidSubtitleError
 from .subtitle_io import _load_subtitle_file
 
 logger = logging.getLogger(__name__)
+
+# Regex patterns that match merge-output subtitle filenames of the form
+# <stem>.<lang>-<lang>.<ext>, e.g. Movie.de-ko.srt or Episode.en-de.ass.
+# These files are the product of bilingual merges and should normally not
+# be re-processed by single-track repair.
+MERGED_OUTPUT_PATTERNS: list[str] = [
+    r"\.[a-z]{2,3}-[a-z]{2,3}\.(srt|ass|sub)$",
+]
 
 
 def fix_single_track_overlaps(subs: SSAFile) -> tuple[SSAFile, int]:
@@ -117,26 +126,53 @@ def fix_overlaps_in_file(subtitle_path: Path) -> dict:
     }
 
 
-def repair_all_subtitles_in_root(media_root: Path) -> dict:
+def repair_all_subtitles_in_root(
+    media_root: Path,
+    exclude_patterns: list[str] | None = None,
+) -> dict:
     """Walk *media_root* and repair every ``.srt`` subtitle file in-place.
 
     Skips files that cannot be parsed (e.g. unknown extension, binary
     garbage) and logs a warning.  Only touches files that actually
     contain overlapping events.
 
+    Merge-output files (e.g. ``Movie.de-ko.srt``) are skipped by default
+    via :data:`MERGED_OUTPUT_PATTERNS`.  Pass a custom list of regex
+    patterns to *exclude_patterns* to override this behaviour; pass an
+    empty list to disable exclusion entirely.
+
     Args:
         media_root: Root directory to search recursively.
+        exclude_patterns: Optional list of regex patterns (case-insensitive
+            via ``re.search``).  Each pattern is tested against the
+            lowercased filename.  When ``None`` (the default)
+            :data:`MERGED_OUTPUT_PATTERNS` is used.
 
     Returns:
-        Dict with ``fixed`` (number of files modified) and ``total``
-        (number of .srt files inspected).
+        Dict with ``fixed`` (number of files modified), ``total``
+        (number of .srt files discovered) and ``skipped`` (number of
+        .srt files excluded by *exclude_patterns*).
     """
     from pathlib import Path
 
+    if exclude_patterns is None:
+        exclude_patterns = MERGED_OUTPUT_PATTERNS
+
+    patterns = [re.compile(pat, re.IGNORECASE) for pat in exclude_patterns]
+
     total = 0
     fixed = 0
+    skipped = 0
     for srt_path in Path(media_root).rglob("*.srt"):
         total += 1
+
+        # Check filename against exclude patterns (case-insensitive)
+        name_lower = srt_path.name.lower()
+        if any(pat.search(name_lower) for pat in patterns):
+            logger.debug("repair: skipping merged-output file %s", srt_path.name)
+            skipped += 1
+            continue
+
         try:
             result = fix_overlaps_in_file(srt_path)
             if result["modified"]:
@@ -147,5 +183,10 @@ def repair_all_subtitles_in_root(media_root: Path) -> dict:
                 srt_path,
                 e,
             )
-    logger.info("repair-all: %d/%d .srt files repaired", fixed, total)
-    return {"fixed": fixed, "total": total}
+    logger.info(
+        "repair-all: %d/%d .srt files repaired, %d skipped",
+        fixed,
+        total,
+        skipped,
+    )
+    return {"fixed": fixed, "total": total, "skipped": skipped}

@@ -19,6 +19,7 @@ Automatic bilingual subtitle merge service for ARR stacks. Combines two single-l
 - [Web UI](#web-ui)
 - [Screenshots](#screenshots)
 - [Auto-Merge Scheduler](#auto-merge-scheduler)
+- [Repair — Overlap Fixing](#repair--overlap-fixing)
 - [Development](#development)
 - [License](#license)
 
@@ -285,6 +286,33 @@ Configure via the **Settings** page (`/settings`) or directly via the API (`POST
 | `schedule_template` | `""` | Style preset to use for scheduled merges (empty = active default template) |
 
 Schedule settings are persisted to `/config/app_settings.json` and survive container restarts.
+
+### Repair — Overlap Fixing
+
+Submerge includes format-aware, single-track subtitle overlap repair that runs before every auto-merge scan (when `repair_before_merge` is enabled, default: off).
+
+**What `repair_before_merge` does:**
+
+1. Walks the entire media root and discovers every `.srt` file.
+2. Skips merge-output files automatically — any file whose name matches the pattern `<stem>.<lang>-<lang>.<ext>` (e.g. `Movie.de-ko.srt`, `Episode.en-de.ass`) is excluded. These files are the bilingual merge product and should not be re-processed by single-track repair.
+3. For each remaining file, detects overlapping subtitle events and fixes them in-place:
+   - **ASS/SSA**: the later overlapping event receives an inline ``{\an8}`` alignment override (standard fansub practice for simultaneous dialogue).
+   - **SRT/all other formats**: the later event's start time is nudged by 1 ms past the earlier event's end time (non-destructive, no ASS tags injected).
+4. Files with no overlaps are **not written to disk** — repair is fully idempotent.
+
+**Exclusion patterns:**
+
+The default pattern list is stored in `MERGED_OUTPUT_PATTERNS` (module constant in `repair.py`):
+
+```python
+MERGED_OUTPUT_PATTERNS = [r"\.[a-z]{2,3}-[a-z]{2,3}\.(srt|ass|sub)$"]
+```
+
+The `repair_all_subtitles_in_root` function accepts an optional `exclude_patterns: list[str] | None` parameter. Pass a custom list to override the default patterns, or pass an empty list to disable exclusion entirely.
+
+**Important — mtime side-effect:**
+
+Repair writes directly to the source `.srt` file, which changes its modification time (`mtime`). If you rely on ZFS snapshots or backup tools that depend on mtime, **create a snapshot before running the first `repair_before_merge`** scan. Submerge does not create backups of source `.srt` files during repair.
 
 ## Development
 
