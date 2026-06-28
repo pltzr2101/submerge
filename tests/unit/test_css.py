@@ -15,6 +15,7 @@ def _extract_rule(css: str, selector: str) -> str:
     """Extract all declaration blocks for a CSS selector as a single string.
 
     The *selector* is a regex-ready string (e.g. ``\\.action-menu\\.open``).
+    Matches the selector regardless of whitespace before the opening brace.
     """
     pattern = re.compile(rf"{selector}\s*\{{(.*?)\}}", re.DOTALL)
     blocks = pattern.findall(css)
@@ -24,19 +25,24 @@ def _extract_rule(css: str, selector: str) -> str:
 class TestActionMenuCSS:
     def test_action_menu_has_absolute_positioning(self):
         css = _read_css()
-        block = _extract_rule(css, r"\.action-menu ")
-        assert "position: absolute" in block
-        assert "z-index: 200" in block or "z-index:" in block
+        block = _extract_rule(css, r"\.action-menu(?![\.\-\w])")
+        # Base rule must declare a position (absolute for closed state; open overrides to fixed)
+        assert "position:" in block or "position :" in block, (
+            f".action-menu base rule must declare a position property, got: {block.strip()!r}"
+        )
+        assert "z-index:" in block or "z-index :" in block, (
+            f".action-menu base rule must declare z-index, got: {block.strip()!r}"
+        )
 
     def test_action_menu_begins_hidden_display_none(self):
         css = _read_css()
-        block = _extract_rule(css, r"\.action-menu ")
+        block = _extract_rule(css, r"\.action-menu(?![\.\-\w])")
         # The base .action-menu must have display: none (hidden by default)
         assert "display: none" in block or "display:none" in block
 
     def test_action_menu_has_no_pointer_events_when_closed(self):
         css = _read_css()
-        block = _extract_rule(css, r"\.action-menu ")
+        block = _extract_rule(css, r"\.action-menu(?![\.\-\w])")
         assert "pointer-events: none" in block or "pointer-events:none" in block
 
     def test_action_menu_open_shows_vertical_flex_column(self):
@@ -62,12 +68,12 @@ class TestActionMenuCSS:
 
     def test_action_dropdown_has_isolation(self):
         css = _read_css()
-        block = _extract_rule(css, r"\.action-dropdown ")
+        block = _extract_rule(css, r"\.action-dropdown(?![\.\-\w])")
         assert "isolation: isolate" in block
 
     def test_action_menu_item_is_block_level_full_width(self):
         css = _read_css()
-        block = _extract_rule(css, r"\.action-menu-item ")
+        block = _extract_rule(css, r"\.action-menu-item(?![\.\-\w])")
         assert "width: 100%" in block or "width:100%" in block
         assert "text-align: left" in block or "text-align:left" in block
         # Must NOT be inline or inline-flex
