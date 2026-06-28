@@ -350,7 +350,12 @@ function renderRowActions(entry, idx) {
     </div>`;
 }
 
+let _menuOpenedAt = 0;
+
 function toggleActionMenu(menuId, triggerBtn) {
+    // Prevent the click from bubbling to the document click-outside handler
+    event.stopPropagation();
+
     const menu = document.getElementById(menuId);
     if (!menu) return;
 
@@ -369,24 +374,37 @@ function toggleActionMenu(menuId, triggerBtn) {
     // Position relative to viewport (for position: fixed)
     const rect = triggerBtn.getBoundingClientRect();
     const menuWidth = 210;
+    const menuHeight = 200;
     const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
 
     let left = rect.right - menuWidth;
     if (left < 8) left = 8;
     if (left + menuWidth > viewportWidth - 8) left = viewportWidth - menuWidth - 8;
 
-    menu.style.top = (rect.bottom + 4) + 'px';
+    let top = rect.bottom + 4;
+    // If menu would overflow below viewport, flip it upward
+    if (top + menuHeight > viewportHeight - 8) {
+        top = rect.top - menuHeight - 4;
+    }
+    // Prevent negative top (menu above viewport edge)
+    if (top < 8) top = 8;
+
+    menu.style.top = top + 'px';
     menu.style.left = left + 'px';
     menu.classList.add('open');
+    _menuOpenedAt = Date.now();
 }
 
 function closeAllMenus() {
     document.querySelectorAll('.action-menu.open').forEach(m => m.classList.remove('open'));
 }
 
-// Close menus on scroll / resize
+// Close menus on scroll / resize — but only after a 150ms guard
+// to avoid race conditions when opening
 ['scroll', 'resize'].forEach(evt =>
     window.addEventListener(evt, () => {
+        if (Date.now() - _menuOpenedAt < 150) return;
         document.querySelectorAll('.action-menu.open').forEach(m => m.classList.remove('open'));
     }, { passive: true })
 );
