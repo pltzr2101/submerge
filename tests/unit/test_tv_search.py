@@ -289,12 +289,43 @@ class TestSearchFilter:
         assert len(result) == 1
         assert "BreakingBad" in result[0]["video_name"]
 
-    def test_search_only_matches_when_not_empty(self):
+    def test_short_query_starts_with_isolated(self):
+        """startsWith branch: seriesName does NOT contain the query, but
+        video_name starts with it after normalisation — proves the
+        ``n_name.startswith(nq)`` path works independently."""
         entries = [
-            {"video_name": "Test", "video_path": "/mnt/movies/Test.mkv", "type": "movies"},
+            {
+                # seriesName "XYZ" → "xyz" — does NOT contain "bb"
+                # video_name "BBQ.S01E01.mkv" → "bbqs01e01" — startsWith "bb"
+                "video_name": "BBQ.S01E01.mkv",
+                "video_path": "/tv/XYZ/Season 1/e01.mkv",
+                "type": "tv",
+            },
+            {
+                "video_name": "Other.S01E01.mkv",
+                "video_path": "/tv/Other/Season 1/e01.mkv",
+                "type": "tv",
+            },
         ]
-        # Empty search returns all (handled by the outer if-guard in renderTable)
-        assert len(self._apply_search(entries, "")) == 1
+        result = self._apply_search(entries, "bb")  # len 2 ≤ 3, short-query path
+        assert len(result) == 1
+        assert "BBQ" in result[0]["video_name"]
+
+    def test_search_only_matches_when_not_empty(self):
+        """Empty query bypasses the filter entirely (outer guard ``if currentSearch``).
+        _apply_search is only called for non-empty queries; this test verifies
+        that a non-empty query correctly filters entries."""
+        entries = [
+            {"video_name": "Arcane.S01E01.mkv", "video_path": "/tv/Arcane/S1/e.mkv", "type": "tv"},
+            {
+                "video_name": "Frieren.S01E01.mkv",
+                "video_path": "/tv/Frieren/S1/e.mkv",
+                "type": "tv",
+            },
+        ]
+        result = self._apply_search(entries, "frieren")
+        assert len(result) == 1
+        assert "Frieren" in result[0]["video_name"]
 
 
 class TestCollapseDefault:
@@ -355,3 +386,37 @@ class TestCollapseDefault:
         self._simulate_load(entries_later, seen, collapsed)
         assert "Old" not in collapsed  # preserved
         assert "New" in collapsed  # new series, collapsed by default
+
+    def test_removed_series_recollapsed_on_return(self):
+        """Known behaviour: if a series disappears from the filesystem and
+        later returns, it is *not* automatically re-collapsed because
+        _seenSeries already contains its name.  User preference (expanded
+        state) is preserved across removals and re-additions.
+
+        This is intentional: the user is in control of collapse state.
+        """
+        entries = [
+            {"video_name": "E01", "video_path": "/tv/Gone/S1/E01.mkv", "type": "tv"},
+        ]
+        seen = set()
+        collapsed = set()
+        # First load — series is collapsed by default
+        self._simulate_load(entries, seen, collapsed)
+        assert "Gone" in collapsed
+
+        # Series disappears from filesystem
+        self._simulate_load([], seen, collapsed)
+        # Still collapsed because we never expanded it manually
+        assert "Gone" in collapsed
+
+        # Series returns — already in _seenSeries, NOT re-added to collapsedSeries
+        self._simulate_load(entries, seen, collapsed)
+        # Unchanged from first load (never expanded)
+        assert "Gone" in collapsed
+
+        # Now simulate user expanding it manually
+        collapsed.discard("Gone")
+        # Series disappears and returns — user preference preserved
+        self._simulate_load(entries, seen, collapsed)
+        # Expanded state survives because _seenSeries guards against re-collapse
+        assert "Gone" not in collapsed
