@@ -79,3 +79,57 @@ class TestDropdownJS:
         assert '<template id="' in html, (
             "renderRowActions must wrap the .action-menu source in a <template> element"
         )
+
+
+class TestTvSearch:
+    """Validate parseTvPath, normalizeSearch, and renderTable TV grouping in index.html."""
+
+    def test_parse_tv_path_present(self):
+        html = _read_index_html()
+        assert "function parseTvPath(" in html, (
+            "index.html must define parseTvPath() for TV path parsing"
+        )
+        assert ".indexOf('/tv/')" in html, "parseTvPath must search for /tv/ segment"
+
+    def test_normalize_search_present(self):
+        html = _read_index_html()
+        assert "function normalizeSearch(" in html, (
+            "index.html must define normalizeSearch() for fuzzy search matching"
+        )
+        # Must strip dots, spaces, hyphens, underscores
+        assert "/[\\s.\\-_]/g" in html or "/[\\s.\\-_]/" in html, (
+            "normalizeSearch must strip dots, spaces, hyphens, underscores"
+        )
+
+    def test_search_state_present(self):
+        html = _read_index_html()
+        assert "let currentSearch = ''" in html or "let currentSearch=''" in html, (
+            "Script must define currentSearch state variable"
+        )
+
+    def test_collapsed_sets_present(self):
+        html = _read_index_html()
+        assert "collapsedSeries" in html, "Script must define collapsedSeries Set"
+        assert "collapsedSeasons" in html, "Script must define collapsedSeasons Set"
+
+    def test_group_header_css_present(self):
+        css_path = Path(__file__).parent.parent.parent / "src" / "submerge" / "static" / "style.css"
+        css = css_path.read_text(encoding="utf-8")
+        assert ".group-header-series" in css, "CSS must define .group-header-series"
+        assert ".group-header-season" in css, "CSS must define .group-header-season"
+        assert ".group-chevron" in css, "CSS must define .group-chevron"
+
+    def test_chk_video_class_preserved(self):
+        html = _read_index_html()
+        # _renderFlatRows must emit class="chk-video" with data-video-path
+        assert 'class="chk-video"' in html, (
+            "Episode rows must carry class=chk-video for batch operations"
+        )
+        assert "data-video-path" in html, (
+            "Episode rows must carry data-video-path for batch operations"
+        )
+
+    def test_search_input_html_present(self):
+        html = _read_index_html()
+        assert 'id="searchInput"' in html, "Toolbar must contain a search input with id=searchInput"
+        assert 'class="search-input"' in html, "Search input must have class=search-input"

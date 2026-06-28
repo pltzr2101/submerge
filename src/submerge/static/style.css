@@ -106,6 +106,37 @@ body {
     font-size: 0.875rem;
 }
 
+/* Search bar — matched to .filter-select dimensions */
+.search-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.search-icon {
+    position: absolute;
+    left: 10px;
+    color: var(--text-muted);
+    pointer-events: none;
+    z-index: 1;
+}
+.search-input {
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 8px 12px 8px 30px;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    min-width: 220px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.search-input:focus {
+    border-color: var(--accent);
+}
+.search-input::placeholder {
+    color: var(--text-muted);
+}
+
 /* Buttons — unified base */
 .btn {
     display: inline-flex;
@@ -619,4 +650,47 @@ legend {
   color: #fff;
 }
 .btn-remerge-inline:hover { background: var(--accent-hover); }
+
+/* TV series/season group headers — collapsible hierarchy rows */
+.group-header-series td {
+  background: var(--bg-card);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.group-header-series:hover td { background: var(--bg-hover); }
+
+.group-header-season td {
+  background: var(--bg);
+  padding: 8px 14px 8px 2.5rem;
+  font-size: 0.9em;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+}
+.group-header-season:hover td { background: var(--bg-hover); }
+
+.group-chevron {
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  margin-right: 6px;
+  font-size: 0.75em;
+  transition: transform 0.15s ease;
+}
+.group-chevron.open { transform: rotate(90deg); }
+
+.group-badge {
+  display: inline-block;
+  margin-left: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7em;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  vertical-align: middle;
+}
 

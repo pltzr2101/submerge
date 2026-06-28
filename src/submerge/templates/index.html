@@ -25,6 +25,10 @@
 <div class="page-header">
     <h1>Media Overview</h1>
     <div class="toolbar">
+        <div class="search-wrapper">
+            <svg class="search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l4.5 4.5"/></svg>
+            <input type="search" id="searchInput" class="search-input" placeholder="Suche nach Titel, S01E03 …" autocomplete="off">
+        </div>
         <select id="filterSelect" class="filter-select">
             <option value="all" selected>All</option>
             <option value="needs-merge">Not Merged</option>
@@ -161,6 +165,9 @@ let selectedTemplate = '';
 let defaultTemplate = '';
 let templates = [];
 let batchMergeBusy = false;
+let currentSearch = '';
+const collapsedSeries = new Set();
+const collapsedSeasons = new Set();
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filterSelect').addEventListener('change', (e) => {
@@ -171,6 +178,13 @@ document.addEventListener('DOMContentLoaded', () => {
         currentTypeFilter = e.target.value;
         renderTable();
     });
+    const searchEl = document.getElementById('searchInput');
+    if (searchEl) {
+        searchEl.addEventListener('input', (e) => {
+            currentSearch = e.target.value.trim();
+            renderTable();
+        });
+    }
     document.getElementById('btnScan').addEventListener('click', doScan);
     document.getElementById('btnBatchMerge').addEventListener('click', showBatchMergeModal);
     document.getElementById('btnModalConfirm').addEventListener('click', executeMerge);
@@ -248,6 +262,40 @@ function getMediaType(entry) {
     if (p.includes('/movies/')) return 'movies';
     if (p.includes('/tv/')) return 'tv';
     return 'unknown';
+}
+
+/**
+ * Parse a video path into {seriesName, seasonName} for TV entries.
+ *
+ * Uses a dot-extension heuristic: after the series folder, the first segment
+ * without a "." is the season; the first segment with a "." is the episode file.
+ * Returns null for paths without a /tv/ segment.
+ */
+function parseTvPath(videoPath) {
+    const p = (videoPath || '').replace(/\\/g, '/');
+    const idx = p.indexOf('/tv/');
+    if (idx === -1) return null;
+    const segments = p.slice(idx + 1).split('/');
+    // segments[0] = "tv", [1] = series, [2+] = season/folder … file
+    const result = { seriesName: null, seasonName: null };
+    if (segments.length > 1) result.seriesName = segments[1];
+    if (segments.length > 2) {
+        for (let i = 2; i < segments.length; i++) {
+            const seg = segments[i];
+            if (seg.includes('.')) break;  // episode file
+            if (result.seasonName === null) result.seasonName = seg;
+        }
+    }
+    return result;
+}
+
+/**
+ * Normalize a search string for fuzzy matching.
+ * Lowercases and strips dots, spaces, hyphens, and underscores.
+ * e.g. "D.P." → "dp", "Frieren S01E03" → "frierens01e03"
+ */
+function normalizeSearch(s) {
+    return s.toLowerCase().replace(/[\s.\-_]/g, '');
 }
 
 function svgIcon(id, size = 14) {
@@ -469,12 +517,115 @@ function renderTable() {
         filtered = filtered.filter(e => getMediaType(e) === currentTypeFilter);
     }
 
+    // Apply search filter
+    if (currentSearch) {
+        const normalizedQuery = normalizeSearch(currentSearch);
+        filtered = filtered.filter(e => {
+            const nameMatch = normalizeSearch(e.video_name).includes(normalizedQuery);
+            const seriesInfo = parseTvPath(e.video_path);
+            const seriesMatch = seriesInfo && normalizeSearch(seriesInfo.seriesName).includes(normalizedQuery);
+            return nameMatch || seriesMatch;
+        });
+    }
+
     if (filtered.length === 0) {
         tbody.innerHTML = '<tr><td colspan="100" class="empty-cell">No entries found</td></tr>';
         return;
     }
 
-    tbody.innerHTML = filtered.map((entry, i) => {
+    const colspan = 2 + LANGS.length + PAIRS.length + 1;
+
+    // Decide whether to show TV groups
+    const hasTV = currentTypeFilter !== 'movies' && filtered.some(e => getMediaType(e) === 'tv');
+    if (!hasTV || currentTypeFilter === 'movies') {
+        // Flat render — movies only or no TV entries
+        tbody.innerHTML = _renderFlatRows(filtered);
+        _resetToolbar();
+        return;
+    }
+
+    // Separate TV from non-TV entries
+    const nonTV = [];
+    const tvBySeries = new Map();  // seriesName -> Map(seasonName -> entries[])
+
+    for (const e of filtered) {
+        if (getMediaType(e) !== 'tv') {
+            nonTV.push(e);
+            continue;
+        }
+        const info = parseTvPath(e.video_path);
+        if (!info || !info.seriesName) {
+            nonTV.push(e);
+            continue;
+        }
+        const sn = info.seriesName;
+        const season = info.seasonName || '?';
+        if (!tvBySeries.has(sn)) tvBySeries.set(sn, new Map());
+        const seasonMap = tvBySeries.get(sn);
+        if (!seasonMap.has(season)) seasonMap.set(season, []);
+        seasonMap.get(season).push(e);
+    }
+
+    // Build output: movies/flat first, then TV groups
+    let html = '';
+
+    // Flat rows for movies / unknown
+    if (nonTV.length > 0) {
+        html += _renderFlatRows(nonTV);
+    }
+
+    // TV groups — sorted alphabetically by series, then by season
+    const sortedSeries = [...tvBySeries.keys()].sort();
+    const isSearching = currentSearch !== '';
+
+    for (const seriesName of sortedSeries) {
+        const seasonMap = tvBySeries.get(seriesName);
+        const sortedSeasons = [...seasonMap.keys()].sort();
+        const totalEpisodes = [...seasonMap.values()].reduce((s, arr) => s + arr.length, 0);
+        const seriesCollapsed = !isSearching && collapsedSeries.has(seriesName);
+
+        // Series header
+        const seriesChevron = seriesCollapsed ? '▶' : '▼';
+        html += `<tr class="group-header-series" onclick="collapsedSeries.has('${escAttr(seriesName)}') ? collapsedSeries.delete('${escAttr(seriesName)}') : collapsedSeries.add('${escAttr(seriesName)}'); renderTable();">
+            <td colspan="${colspan}">
+                <span class="group-chevron${seriesCollapsed ? '' : ' open'}">${seriesChevron}</span>
+                ${escHtml(seriesName)}
+                <span class="group-badge">${totalEpisodes}</span>
+            </td>
+        </tr>`;
+
+        if (seriesCollapsed) continue;
+
+        for (const seasonName of sortedSeasons) {
+            const entries = seasonMap.get(seasonName);
+            const seasonKey = `${seriesName}::${seasonName}`;
+            const seasonCollapsed = !isSearching && collapsedSeasons.has(seasonKey);
+
+            // Season sub-header
+            const seasonLabel = seasonName === '?' ? 'No season folder' : seasonName;
+            const seasonChevron = seasonCollapsed ? '▶' : '▼';
+            html += `<tr class="group-header-season" onclick="collapsedSeasons.has('${escAttr(seasonKey)}') ? collapsedSeasons.delete('${escAttr(seasonKey)}') : collapsedSeasons.add('${escAttr(seasonKey)}'); renderTable();">
+                <td colspan="${colspan}">
+                    <span class="group-chevron${seasonCollapsed ? '' : ' open'}">${seasonChevron}</span>
+                    ${escHtml(seasonLabel)}
+                    <span class="group-badge">${entries.length}</span>
+                </td>
+            </tr>`;
+
+            if (seasonCollapsed) continue;
+
+            // Episode rows
+            html += _renderFlatRows(entries);
+        }
+    }
+
+    tbody.innerHTML = html || '<tr><td colspan="100" class="empty-cell">No entries found</td></tr>';
+    _resetToolbar();
+}
+
+/** Render flat rows for a list of entries (used for movies and episode rows). */
+function _renderFlatRows(entries) {
+    return entries.map((entry, i) => {
         const cls = getRowClass(entry);
 
         let cells = '';
@@ -499,8 +650,9 @@ function renderTable() {
 
         return `<tr class="${cls}">${cells}</tr>`;
     }).join('');
+}
 
-    // Reset master checkbox and toolbar after re-render
+function _resetToolbar() {
     document.getElementById('chkSelectAll').checked = false;
     document.getElementById('chkSelectAll').indeterminate = false;
     document.getElementById('batchToolbar').classList.add('hidden');
