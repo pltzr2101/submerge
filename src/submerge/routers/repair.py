@@ -14,6 +14,10 @@ from ..repair import fix_overlaps_in_file, repair_subtitle_paths
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Maximum number of subtitle paths allowed in a single batch-fix-overlaps
+# request.  Guard against accidental or malicious oversized payloads.
+_MAX_BATCH_SIZE: int = 500
+
 
 @router.post("/api/repair/fix-overlaps")
 async def api_fix_overlaps(request: Request):
@@ -73,7 +77,8 @@ async def api_batch_fix_overlaps(request: Request):
     :data:`~submerge.repair.MERGED_OUTPUT_PATTERNS` is used.
 
     Every path must be an absolute ``.srt`` path within the configured
-    media root, otherwise a ``400`` error is returned.
+    media root, otherwise a ``400`` error is returned.  The list is
+    capped at :data:`_MAX_BATCH_SIZE` entries (currently 500).
 
     Returns::
 
@@ -95,6 +100,15 @@ async def api_batch_fix_overlaps(request: Request):
             detail={
                 "status": "error",
                 "message": "subtitle_paths must be a non-empty list of absolute paths",
+            },
+        )
+
+    if len(raw_paths) > _MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "message": f"subtitle_paths must not exceed {_MAX_BATCH_SIZE} entries",
             },
         )
 

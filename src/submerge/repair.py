@@ -144,7 +144,8 @@ def repair_subtitle_paths(
     Each path is processed through :func:`fix_overlaps_in_file`.  Files
     whose name matches an *exclude_patterns* regex are skipped (same
     logic as :func:`repair_all_subtitles_in_root`).  Non-``.srt`` paths
-    are silently ignored.
+    are silently ignored.  Duplicate paths are silently deduplicated
+    (first occurrence wins, order is preserved).
 
     Args:
         paths: List of absolute paths to subtitle files.
@@ -155,6 +156,8 @@ def repair_subtitle_paths(
         Dict with ``total``, ``fixed``, ``skipped``, ``failed`` and
         ``repositioned`` (total events repositioned across all files).
     """
+    paths = list(dict.fromkeys(paths))  # deduplicate, preserving order
+
     patterns = _compile_exclude_patterns(exclude_patterns)
 
     total = 0
@@ -223,14 +226,16 @@ def repair_all_subtitles_in_root(
 
     Returns:
         Dict with ``fixed`` (number of files modified), ``total``
-        (number of .srt files discovered) and ``skipped`` (number of
-        .srt files excluded by *exclude_patterns*).
+        (number of .srt files discovered), ``skipped`` (number of
+        .srt files excluded by *exclude_patterns*) and ``failed``
+        (number of .srt files that could not be loaded/parsed).
     """
     patterns = _compile_exclude_patterns(exclude_patterns)
 
     total = 0
     fixed = 0
     skipped = 0
+    failed = 0
     for srt_path in Path(media_root).rglob("*.srt"):
         total += 1
 
@@ -244,16 +249,18 @@ def repair_all_subtitles_in_root(
             result = fix_overlaps_in_file(srt_path)
             if result["modified"]:
                 fixed += 1
-        except (InvalidSubtitleError, OSError) as e:
+        except (InvalidSubtitleError, FileNotFoundError, OSError) as e:
             logger.warning(
                 "Skipping unrepairable subtitle %s: %s",
                 srt_path,
                 e,
             )
+            failed += 1
     logger.info(
-        "repair-all: %d/%d .srt files repaired, %d skipped",
+        "repair-all: %d/%d .srt files repaired, %d skipped, %d failed",
         fixed,
         total,
         skipped,
+        failed,
     )
-    return {"fixed": fixed, "total": total, "skipped": skipped}
+    return {"fixed": fixed, "total": total, "skipped": skipped, "failed": failed}

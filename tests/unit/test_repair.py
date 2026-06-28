@@ -287,3 +287,24 @@ class TestRepairSubtitlePaths:
         assert result["fixed"] == 0
         assert result["total"] == 1
         assert sub_file.stat().st_mtime == mtime_before
+
+    def test_deduplicates_paths(self, tmp_path):
+        """Same path twice → total=1, not 2."""
+        sub_file = tmp_path / "dedup.srt"
+        _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt").save(str(sub_file))
+
+        result = repair_subtitle_paths([sub_file, sub_file])
+        assert result["total"] == 1
+        assert result["fixed"] == 1
+
+
+class TestRepairAllFailedKey:
+    def test_repair_all_returns_failed_key(self, tmp_path):
+        """repair_all_subtitles_in_root returns 'failed' key for unparseable files."""
+        # A binary file that cannot be parsed as subtitle
+        (tmp_path / "bad.srt").write_bytes(b"\x00\x01\x02")
+
+        result = repair_all_subtitles_in_root(tmp_path)
+        assert result["total"] == 1
+        assert result["failed"] == 1
+        assert "failed" in result

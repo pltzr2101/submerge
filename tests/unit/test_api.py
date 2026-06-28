@@ -793,3 +793,20 @@ class TestBatchRepairApi:
         assert data["total"] == 2
 
         get_settings.cache_clear()
+
+    def test_batch_fix_overlaps_too_many_paths(self, tmp_path, monkeypatch):
+        """>500 paths returns 400 with size-cap message."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        # Create one valid .srt so path validation passes for all entries
+        valid = tmp_path / "valid.srt"
+        self._make_overlapping_srt(valid)
+
+        # Send 501 paths (all pointing to the same valid file — validation
+        # only checks format, not uniqueness)
+        payload = {"subtitle_paths": [str(valid)] * 501}
+        resp = client.post("/api/repair/batch-fix-overlaps", json=payload)
+        assert resp.status_code == 400
+        assert "must not exceed 500" in resp.json()["detail"]["message"]
+
+        get_settings.cache_clear()
