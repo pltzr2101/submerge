@@ -96,9 +96,9 @@ class TestTvSearch:
         assert "function normalizeSearch(" in html, (
             "index.html must define normalizeSearch() for fuzzy search matching"
         )
-        # Must strip dots, spaces, hyphens, underscores
-        assert "/[\\s.\\-_]/g" in html or "/[\\s.\\-_]/" in html, (
-            "normalizeSearch must strip dots, spaces, hyphens, underscores"
+        # Must strip all non-alphanumeric chars — not just dots/spaces/hyphens
+        assert "/[^a-z0-9]/g" in html or "/[^a-z0-9]/" in html, (
+            "normalizeSearch must strip ALL non-alphanumeric characters (use [^a-z0-9])"
         )
 
     def test_search_state_present(self):
@@ -111,6 +111,15 @@ class TestTvSearch:
         html = _read_index_html()
         assert "collapsedSeries" in html, "Script must define collapsedSeries Set"
         assert "collapsedSeasons" in html, "Script must define collapsedSeasons Set"
+        assert "_seenSeries" in html, "Script must define _seenSeries tracking Set"
+
+    def test_load_media_collapses_series(self):
+        html = _read_index_html()
+        # loadMedia() must iterate over allEntries and add TV series to collapsedSeries
+        assert "_seenSeries.has(" in html, (
+            "loadMedia must check _seenSeries before adding to collapsedSeries"
+        )
+        assert "collapsedSeries.add(" in html, "loadMedia must add new series to collapsedSeries"
 
     def test_group_header_css_present(self):
         css_path = Path(__file__).parent.parent.parent / "src" / "submerge" / "static" / "style.css"

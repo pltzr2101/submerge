@@ -32,8 +32,8 @@ def parse_tv_path(video_path: str) -> dict | None:
 
 
 def normalize_search(s: str) -> str:
-    """Python port of normalizeSearch()."""
-    return re.sub(r"[\s.\-_]", "", s).lower()
+    """Python port of normalizeSearch(). Strips all non-alphanumeric chars."""
+    return re.sub(r"[^a-z0-9]", "", s.lower())
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +142,9 @@ class TestNormalizeSearch:
     def test_dots_and_mixed_case(self):
         assert normalize_search("D.P.") == "dp"
 
+    def test_dp_no_dots(self):
+        assert normalize_search("DP") == "dp"
+
     def test_spaces_and_hyphens(self):
         assert normalize_search("Frieren S01E03") == "frierens01e03"
 
@@ -153,6 +156,20 @@ class TestNormalizeSearch:
 
     def test_only_special(self):
         assert normalize_search(" .-_") == ""
+
+    def test_brackets_and_apostrophe(self):
+        # Parens, apostrophes, hyphens — all non-alphanumeric stripped
+        assert normalize_search("Frieren - Beyond Journey's End (2023) - S01E03") == (
+            "frierenbeyondjourneysend2023s01e03"
+        )
+
+    def test_square_brackets(self):
+        assert normalize_search("[HorribleSubs] Show - 01 [1080p].mkv") == (
+            "horriblesubsshow011080pmkv"
+        )
+
+    def test_leading_trailing_special(self):
+        assert normalize_search("___D.P.___") == "dp"
 
 
 class TestGrouping:
@@ -184,3 +201,157 @@ class TestGrouping:
         entries = [{"video_name": "X", "video_path": "/x", "type": "unknown"}]
         groups = _build_tv_groups(entries)
         assert groups == {}
+
+
+class TestSearchFilter:
+    """Python port of the search filter logic in renderTable()."""
+
+    def _apply_search(self, entries, query):
+        """Replicate the search filter from renderTable()."""
+        nq = normalize_search(query)
+        result = []
+        for e in entries:
+            n_name = normalize_search(e["video_name"])
+            if len(nq) <= 3:
+                info = parse_tv_path(e.get("video_path", ""))
+                n_series = (
+                    normalize_search(info["seriesName"]) if info and info["seriesName"] else ""
+                )
+                if (n_series and nq in n_series) or n_name.startswith(nq):
+                    result.append(e)
+            else:
+                info = parse_tv_path(e.get("video_path", ""))
+                n_series = (
+                    normalize_search(info["seriesName"]) if info and info["seriesName"] else ""
+                )
+                if nq in n_name or (n_series and nq in n_series):
+                    result.append(e)
+        return result
+
+    def test_long_query_matches_bracketed_name(self):
+        # "frierens01e03" should match a filename with special chars
+        # — normaliseSearch strips all non-[a-z0-9], so brackets vanish
+        entries = [
+            {
+                "video_name": (
+                    "Frieren - S01E03 - Killing Magic [Bluray-1080p][FLAC 2.0][x265]-FROGE.mkv"
+                ),
+                "video_path": "/tv/Frieren/Season 1/f.mkv",
+                "type": "tv",
+            },
+            {
+                "video_name": "Arcane S01E03.mkv",
+                "video_path": "/tv/Arcane/Season 1/a.mkv",
+                "type": "tv",
+            },
+        ]
+        result = self._apply_search(entries, "frierens01e03")
+        assert len(result) == 1
+        assert "Frieren" in result[0]["video_name"]
+
+    def test_short_query_dp_matches_series_only(self):
+        # "dp" (length 2 ≤ 3) should match D.P. series but NOT DeepSea
+        entries = [
+            {
+                "video_name": "D.P. - S01E01.mkv",
+                "video_path": "/tv/D.P./Season 1/e01.mkv",
+                "type": "tv",
+            },
+            {
+                "video_name": "kdrama_deep_sea.mkv",
+                "video_path": "/tv/DeepSea/Season 1/e01.mkv",
+                "type": "tv",
+            },
+        ]
+        result = self._apply_search(entries, "dp")
+        # Should only match D.P. (seriesName="D.P." → "dp"), not DeepSea
+        assert len(result) == 1
+        assert "D.P." in result[0]["video_name"]
+
+    def test_short_query_starts_with_match(self):
+        # Short query should also match via startsWith on video_name
+        entries = [
+            {
+                "video_name": "BreakingBad.S01E01.mkv",
+                "video_path": "/tv/BreakingBad/Season 1/e01.mkv",
+                "type": "tv",
+            },
+            {
+                "video_name": "NotBreakingBad.mkv",
+                "video_path": "/tv/Other/Season 1/e01.mkv",
+                "type": "tv",
+            },
+        ]
+        result = self._apply_search(entries, "bre")
+        # "bre" (len 3 ≤ 3): startsWith on nName "breakingbads01e01" → true,
+        # nSeries "breakingbad" includes "bre" → true.
+        # "notbreakingbad" startsWith "bre" → false, nSeries="other" → false.
+        assert len(result) == 1
+        assert "BreakingBad" in result[0]["video_name"]
+
+    def test_search_only_matches_when_not_empty(self):
+        entries = [
+            {"video_name": "Test", "video_path": "/mnt/movies/Test.mkv", "type": "movies"},
+        ]
+        # Empty search returns all (handled by the outer if-guard in renderTable)
+        assert len(self._apply_search(entries, "")) == 1
+
+
+class TestCollapseDefault:
+    """Simulate loadMedia() collapse-initialisation logic."""
+
+    def _simulate_load(self, entries, seen_series, collapsed_series):
+        """Replicate the initialisation loop from loadMedia()."""
+        for e in entries:
+            if e.get("type") != "tv":
+                continue
+            info = parse_tv_path(e.get("video_path", ""))
+            if info and info["seriesName"] and info["seriesName"] not in seen_series:
+                seen_series.add(info["seriesName"])
+                collapsed_series.add(info["seriesName"])
+
+    def test_first_load_collapses_all(self):
+        entries = [
+            {"video_name": "E01", "video_path": "/tv/Frieren/S1/E01.mkv", "type": "tv"},
+            {"video_name": "E02", "video_path": "/tv/Arcane/S1/E02.mkv", "type": "tv"},
+            {"video_name": "Movie", "video_path": "/movies/M.mkv", "type": "movies"},
+        ]
+        seen = set()
+        collapsed = set()
+        self._simulate_load(entries, seen, collapsed)
+        assert "Frieren" in collapsed
+        assert "Arcane" in collapsed
+        assert len(collapsed) == 2
+
+    def test_manual_expand_preserved_across_reload(self):
+        entries = [
+            {"video_name": "E01", "video_path": "/tv/Show/S1/E01.mkv", "type": "tv"},
+        ]
+        seen = set()
+        collapsed = set()
+        # First load
+        self._simulate_load(entries, seen, collapsed)
+        assert "Show" in collapsed
+
+        # User expands
+        collapsed.discard("Show")
+        assert "Show" not in collapsed
+
+        # Reload — should NOT re-collapse because Show is already in seen
+        self._simulate_load(entries, seen, collapsed)
+        assert "Show" not in collapsed
+
+    def test_new_series_collapsed_on_later_load(self):
+        entries_first = [
+            {"video_name": "E01", "video_path": "/tv/Old/S1/E01.mkv", "type": "tv"},
+        ]
+        entries_later = entries_first + [
+            {"video_name": "E01", "video_path": "/tv/New/S1/E01.mkv", "type": "tv"},
+        ]
+        seen = set()
+        collapsed = set()
+        self._simulate_load(entries_first, seen, collapsed)
+        collapsed.discard("Old")  # user expanded
+        self._simulate_load(entries_later, seen, collapsed)
+        assert "Old" not in collapsed  # preserved
+        assert "New" in collapsed  # new series, collapsed by default
