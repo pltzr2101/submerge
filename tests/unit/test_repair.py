@@ -9,6 +9,7 @@ from submerge.repair import (
     fix_overlaps_in_file,
     fix_single_track_overlaps,
     repair_all_subtitles_in_root,
+    repair_subtitle_paths,
 )
 
 
@@ -197,4 +198,92 @@ class TestRepairAllSubtitlesInRoot:
         result = repair_all_subtitles_in_root(tmp_path)
         assert result["total"] == 1
         assert result["fixed"] == 0
+        assert sub_file.stat().st_mtime == mtime_before
+
+
+class TestRepairSubtitlePaths:
+    def test_happy_path_repairs_overlapping_files(self, tmp_path):
+        """Explicit path list: overlapping files are repaired, clean ones are untouched."""
+        bad1 = tmp_path / "bad1.srt"
+        _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt").save(str(bad1))
+        bad2 = tmp_path / "bad2.srt"
+        _make_subs([(0, 3000, "X"), (1000, 4000, "Y")], fmt="srt").save(str(bad2))
+        clean = tmp_path / "clean.srt"
+        _make_subs([(0, 1000, "C"), (2000, 3000, "D")], fmt="srt").save(str(clean))
+
+        result = repair_subtitle_paths([bad1, bad2, clean])
+        assert result["total"] == 3
+        assert result["fixed"] == 2
+        assert result["skipped"] == 0
+        assert result["failed"] == 0
+        assert result["repositioned"] == 2
+
+    def test_merged_output_skipped_by_default(self, tmp_path):
+        """Merge-output filenames are skipped with default exclude_patterns."""
+        merged = tmp_path / "Movie.de-ko.srt"
+        _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt").save(str(merged))
+        normal = tmp_path / "normal.srt"
+        _make_subs([(0, 2000, "X"), (500, 2500, "Y")], fmt="srt").save(str(normal))
+
+        result = repair_subtitle_paths([merged, normal])
+        assert result["total"] == 2
+        assert result["fixed"] == 1
+        assert result["skipped"] == 1
+
+    def test_custom_exclude_patterns(self, tmp_path):
+        """Custom exclude_patterns override the default."""
+        custom = tmp_path / "test.custom.srt"
+        _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt").save(str(custom))
+        normal = tmp_path / "normal.srt"
+        _make_subs([(0, 2000, "X"), (500, 2500, "Y")], fmt="srt").save(str(normal))
+
+        result = repair_subtitle_paths(
+            [custom, normal],
+            exclude_patterns=[r"\.custom\.(srt)$"],
+        )
+        assert result["skipped"] == 1
+        assert result["fixed"] == 1
+
+    def test_nonexistent_file_marks_failed(self, tmp_path):
+        """Non-existent files are counted as failed, not fatal."""
+        exists = tmp_path / "exists.srt"
+        _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="srt").save(str(exists))
+
+        result = repair_subtitle_paths([exists, tmp_path / "nope.srt"])
+        assert result["total"] == 2
+        assert result["fixed"] == 1
+        assert result["failed"] == 1
+        assert result["repositioned"] == 1
+
+    def test_empty_paths_list(self, tmp_path):
+        """Empty list returns all zeros."""
+        result = repair_subtitle_paths([])
+        assert result == {
+            "total": 0,
+            "fixed": 0,
+            "skipped": 0,
+            "failed": 0,
+            "repositioned": 0,
+        }
+
+    def test_non_srt_paths_ignored(self, tmp_path):
+        """Non-.srt files are silently skipped (not counted in total)."""
+        ass_file = tmp_path / "test.ass"
+        _make_subs([(0, 2000, "A"), (500, 2500, "B")], fmt="ass").save(str(ass_file))
+        srt_file = tmp_path / "test.srt"
+        _make_subs([(0, 2000, "X"), (500, 2500, "Y")], fmt="srt").save(str(srt_file))
+
+        result = repair_subtitle_paths([ass_file, srt_file])
+        assert result["total"] == 1
+        assert result["fixed"] == 1
+
+    def test_no_write_when_clean_preserves_mtime(self, tmp_path):
+        """Clean files are not rewritten — mtime unchanged."""
+        sub_file = tmp_path / "clean.srt"
+        _make_subs([(0, 1000, "Line 1"), (2000, 3000, "Line 2")], fmt="srt").save(str(sub_file))
+        mtime_before = sub_file.stat().st_mtime
+
+        result = repair_subtitle_paths([sub_file])
+        assert result["fixed"] == 0
+        assert result["total"] == 1
         assert sub_file.stat().st_mtime == mtime_before

@@ -196,6 +196,7 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `POST` | `/api/batch-merge` | Trigger merge for multiple videos. Body: `{"video_paths": ["<path>", ...], "template": "<preset>", "overwrite": true}`. Response: `{"results": [{"video": "<name>", "status": "merged"|"skipped"|"error"|"polling", ...}]}` |
 | `POST` | `/api/sync` | Synchronize a subtitle file via ffsubsync |
 | `POST` | `/api/repair/fix-overlaps` | Fix overlapping events in a single subtitle track. ASS tracks receive inline ``{\an8}`` alignment overrides, SRT tracks get time nudging (+1 ms). Body: `{"subtitle_path": "<path>"}`. Response: `{"status": "ok", "repositioned": N, "output_path": "...", "modified": true/false}` |
+| `POST` | `/api/repair/batch-fix-overlaps` | Fix overlapping events in multiple subtitle files with a single request (avoids rate-limit on large libraries). Body: `{"subtitle_paths": ["<path1>", "<path2>", ...], "exclude_patterns": ["<regex>", ...]}` (``exclude_patterns`` optional). Response: `{"status": "ok", "total": N, "fixed": N, "skipped": N, "failed": N, "repositioned": N}` |
 | `POST` | `/scan` | Scan all directories, start missing merges |
 | `GET` | `/api/polls` | List active background polling jobs |
 
@@ -309,6 +310,12 @@ MERGED_OUTPUT_PATTERNS = [r"\.[a-z]{2,3}-[a-z]{2,3}\.(srt|ass|sub)$"]
 ```
 
 The `repair_all_subtitles_in_root` function accepts an optional `exclude_patterns: list[str] | None` parameter. Pass a custom list to override the default patterns, or pass an empty list to disable exclusion entirely.
+
+**Batch endpoint:**
+
+The Web UI "Repair All" and batch-repair toolbar actions send a single `POST /api/repair/batch-fix-overlaps` request containing all subtitle paths at once. The server processes every file in one call and returns an aggregated result. This eliminates the risk of hitting the global request rate-limit on large media libraries — previously every file triggered an individual `POST /api/repair/fix-overlaps` call, which could easily exceed the configured ``SUBTOOLS_RATE_LIMIT_RPM``.
+
+The batch endpoint accepts the same optional `exclude_patterns` parameter and delegates to the shared `repair_subtitle_paths()` helper in `repair.py`.
 
 **Important — mtime side-effect:**
 

@@ -7,6 +7,7 @@ Tests removed: mock overload on endpoints (tested in integration).
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -669,3 +670,126 @@ class TestScheduleMergeLock:
 
         asyncio.run(_run_test())
         # If we get here without hanging, the test passes
+
+
+class TestBatchRepairApi:
+    """Tests for POST /api/repair/batch-fix-overlaps endpoint."""
+
+    @staticmethod
+    def _make_client(tmp_path, monkeypatch):
+        """Create a TestClient with isolated media_root and config_dir."""
+        monkeypatch.setenv("SUBTOOLS_MEDIA_ROOT", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "de-ko")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        import importlib
+
+        from submerge import api as api_module
+
+        importlib.reload(api_module)
+        from starlette.testclient import TestClient
+
+        return TestClient(api_module.app), get_settings
+
+    @staticmethod
+    def _make_overlapping_srt(path: Path):
+        """Create an SRT file with overlapping events."""
+        from pysubs2 import SSAEvent, SSAFile
+
+        subs = SSAFile()
+        subs.format = "srt"
+        subs.events.append(SSAEvent(start=0, end=2000, text="Line 1"))
+        subs.events.append(SSAEvent(start=500, end=2500, text="Line 2"))
+        subs.save(str(path))
+
+    def test_batch_repair_returns_ok(self, tmp_path, monkeypatch):
+        """Valid batch repair returns 200 with aggregated counts."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        p1 = tmp_path / "one.srt"
+        p2 = tmp_path / "two.srt"
+        self._make_overlapping_srt(p1)
+        self._make_overlapping_srt(p2)
+
+        resp = client.post(
+            "/api/repair/batch-fix-overlaps",
+            json={"subtitle_paths": [str(p1), str(p2)]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["total"] == 2
+        assert data["fixed"] == 2
+        assert data["repositioned"] == 2
+
+        get_settings.cache_clear()
+
+    def test_batch_empty_list_returns_400(self, tmp_path, monkeypatch):
+        """Empty subtitle_paths list returns 400."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.post("/api/repair/batch-fix-overlaps", json={"subtitle_paths": []})
+        assert resp.status_code == 400
+
+        get_settings.cache_clear()
+
+    def test_batch_missing_key_returns_400(self, tmp_path, monkeypatch):
+        """Missing subtitle_paths key returns 400."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.post("/api/repair/batch-fix-overlaps", json={})
+        assert resp.status_code == 400
+
+        get_settings.cache_clear()
+
+    def test_batch_non_srt_rejected(self, tmp_path, monkeypatch):
+        """Non-.srt path returns 400."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        p = tmp_path / "test.ass"
+        p.touch()
+
+        resp = client.post(
+            "/api/repair/batch-fix-overlaps",
+            json={"subtitle_paths": [str(p)]},
+        )
+        assert resp.status_code == 400
+        assert ".srt" in resp.json()["detail"]["message"]
+
+        get_settings.cache_clear()
+
+    def test_batch_relative_path_rejected(self, tmp_path, monkeypatch):
+        """Relative path returns 400."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        resp = client.post(
+            "/api/repair/batch-fix-overlaps",
+            json={"subtitle_paths": ["relative/path.srt"]},
+        )
+        assert resp.status_code == 400
+        assert "absolute path" in resp.json()["detail"]["message"]
+
+        get_settings.cache_clear()
+
+    def test_batch_skipped_and_fixed(self, tmp_path, monkeypatch):
+        """Merge-output .srt is skipped, normal .srt is repaired."""
+        client, get_settings = self._make_client(tmp_path, monkeypatch)
+
+        merged = tmp_path / "Movie.de-ko.srt"
+        normal = tmp_path / "normal.srt"
+        self._make_overlapping_srt(merged)
+        self._make_overlapping_srt(normal)
+
+        resp = client.post(
+            "/api/repair/batch-fix-overlaps",
+            json={"subtitle_paths": [str(merged), str(normal)]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skipped"] == 1
+        assert data["fixed"] == 1
+        assert data["total"] == 2
+
+        get_settings.cache_clear()

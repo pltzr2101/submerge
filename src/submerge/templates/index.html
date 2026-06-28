@@ -964,54 +964,40 @@ async function repairSubtitle(entry) {
 }
 
 async function repairAll() {
-    const entriesWithSubs = allEntries.filter(entry => {
+    const subtitlePaths = [];
+    for (const entry of allEntries) {
         for (const lang of LANGS) {
             const st = entry.subtitle_status[lang];
-            if (st && st.present && st.path) return true;
+            if (st && st.present && st.path) {
+                subtitlePaths.push(st.path);
+                break;  // first available subtitle per entry
+            }
         }
-        return false;
-    });
+    }
 
-    if (entriesWithSubs.length === 0) {
+    if (subtitlePaths.length === 0) {
         showStatus('Keine Einträge mit Subtitles gefunden.', 'warning');
         return;
     }
 
-    let fixed = 0;
-    let totalRepositioned = 0;
-    let errors = 0;
-    const total = entriesWithSubs.length;
-
-    for (let i = 0; i < entriesWithSubs.length; i++) {
-        const entry = entriesWithSubs[i];
-        showStatus(`Repair läuft (${i + 1}/${total})…`, 'info');
-        let subtitlePath = null;
-        for (const lang of LANGS) {
-            const st = entry.subtitle_status[lang];
-            if (st && st.present && st.path) {
-                subtitlePath = st.path;
-                break;
-            }
+    showStatus(`Repair läuft für ${subtitlePaths.length} Datei(en)…`, 'info');
+    try {
+        const resp = await fetch('/api/repair/batch-fix-overlaps', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({subtitle_paths: subtitlePaths}),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showStatus(`Repair fehlgeschlagen: ${err?.detail?.message || resp.statusText}`, 'error');
+            return;
         }
-        if (!subtitlePath) continue;
-        try {
-            const resp = await fetch('/api/repair/fix-overlaps', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({subtitle_path: subtitlePath}),
-            });
-            const data = await resp.json();
-            if (data.status === 'ok') {
-                totalRepositioned += data.repositioned || 0;
-                fixed++;
-            } else {
-                errors++;
-            }
-        } catch (_) { errors++; }
+        const data = await resp.json();
+        const msg = `Repair All abgeschlossen: ${data.repositioned || 0} Überlappungen in ${data.fixed || 0} Dateien behoben${data.failed > 0 ? `, ${data.failed} Fehler` : ''}${data.skipped > 0 ? `, ${data.skipped} übersprungen` : ''}`;
+        showStatus(msg, data.failed > 0 ? 'error' : 'success');
+    } catch (e) {
+        showStatus('Repair All fehlgeschlagen: ' + e.message, 'error');
     }
-
-    const msg = `Repair All abgeschlossen: ${totalRepositioned} Überlappungen in ${fixed} Dateien behoben.${errors > 0 ? ` ${errors} Fehler.` : ''}`;
-    showStatus(msg, errors > 0 ? 'error' : 'success');
 }
 
 async function doScan() {
@@ -1180,54 +1166,43 @@ async function executeBatchRepair() {
 
     const videoPaths = Array.from(checked).map(cb => cb.dataset.videoPath);
 
-    const subtitleEntries = [];
+    const subtitlePaths = [];
     for (const vp of videoPaths) {
         const entry = allEntries.find(e => e.video_path === vp);
         if (!entry) continue;
         for (const lang of LANGS) {
             const st = entry.subtitle_status[lang];
             if (st && st.present && st.path) {
-                subtitleEntries.push({ path: st.path, lang });
+                subtitlePaths.push(st.path);
             }
         }
     }
 
-    if (subtitleEntries.length === 0) {
+    if (subtitlePaths.length === 0) {
         showStatus('Keine Subtitle-Dateien in der Auswahl gefunden.', 'warning');
         return;
     }
 
-    showStatus(`Repairing ${subtitleEntries.length} Subtitle(s)…`, 'info');
-    let fixed = 0;
-    let errors = 0;
-    let totalRepositioned = 0;
-    const langRepositioned = {};  // {lang: count}
-
-    for (const se of subtitleEntries) {
-        try {
-            const resp = await fetch('/api/repair/fix-overlaps', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({subtitle_path: se.path}),
-            });
-            const data = await resp.json();
-            if (data.status === 'ok') {
-                fixed++;
-                const rp = data.repositioned || 0;
-                totalRepositioned += rp;
-                langRepositioned[se.lang] = (langRepositioned[se.lang] || 0) + rp;
-            } else {
-                errors++;
-            }
-        } catch (_) { errors++; }
+    showStatus(`Repairing ${subtitlePaths.length} Subtitle(s)…`, 'info');
+    try {
+        const resp = await fetch('/api/repair/batch-fix-overlaps', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({subtitle_paths: subtitlePaths}),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showStatus(`Batch-Repair fehlgeschlagen: ${err?.detail?.message || resp.statusText}`, 'error');
+            return;
+        }
+        const data = await resp.json();
+        const msg = `Batch-Repair: ${data.total || 0} Datei(en) verarbeitet, ${data.repositioned || 0} Events repositioniert, ${data.fixed || 0} repariert` +
+            (data.skipped > 0 ? `, ${data.skipped} übersprungen` : '') +
+            (data.failed > 0 ? `, ${data.failed} Fehler` : '');
+        showStatus(msg, data.failed > 0 ? 'error' : 'success');
+    } catch (e) {
+        showStatus('Batch-Repair fehlgeschlagen: ' + e.message, 'error');
     }
-
-    const langParts = Object.entries(langRepositioned)
-        .map(([lang, n]) => `${lang.toUpperCase()}: ${n}`)
-        .join(', ');
-    const langSummary = langParts ? ` (${langParts})` : '';
-    const msg = `Batch-Repair: ${fixed} Datei(en) verarbeitet, ${totalRepositioned} Events repositioniert${langSummary}${errors > 0 ? `, ${errors} Fehler` : ''}`;
-    showStatus(msg, errors > 0 ? 'error' : 'success');
     deselectAll();
 }
 
