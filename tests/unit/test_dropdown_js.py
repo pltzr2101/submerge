@@ -16,11 +16,10 @@ def _read_index_html() -> str:
 def _extract_toggle_body(html: str) -> str:
     """Extract the toggleActionMenu function body.
 
-    Matches from ``function toggleActionMenu`` through the closing ``}`` of the
-    function, using the next ``function `` keyword as the boundary marker.
+    Uses ``function `` as boundary — robust against varying whitespace between functions.
     """
     m = re.search(
-        r"function toggleActionMenu\(.*?\)\s*\{(.*?)\n\}\s*\n+function ",
+        r"function toggleActionMenu\(.*?\)\s*\{(.*?)\n\}\s*(?:\n+function\s|\Z)",
         html,
         re.DOTALL,
     )
@@ -36,6 +35,13 @@ class TestDropdownJS:
             "the click-outside listener from closing the menu immediately"
         )
 
+    def test_event_parameter_explicit(self):
+        html = _read_index_html()
+        # The onclick attribute must pass `event` as first argument
+        assert "toggleActionMenu(event," in html, (
+            "onclick must pass the event object explicitly: toggleActionMenu(event, ...)"
+        )
+
     def test_menu_opened_at_guard_present(self):
         html = _read_index_html()
         assert "_menuOpenedAt" in html, (
@@ -44,8 +50,6 @@ class TestDropdownJS:
 
     def test_scroll_listener_has_debounce_guard(self):
         html = _read_index_html()
-        # The scroll/resize close-all listener must reference _menuOpenedAt
-        # The pattern uses forEach with an arrow function on window.addEventListener
         m = re.search(
             r"_menuOpenedAt.*?addEventListener\s*\(.*?(?:scroll|resize|evt)",
             html,
@@ -67,4 +71,11 @@ class TestDropdownJS:
         assert "offsetHeight" in body, (
             "toggleActionMenu must measure real clone height via offsetHeight "
             "instead of hard-coding menuHeight"
+        )
+
+    def test_uses_template_element(self):
+        html = _read_index_html()
+        # The source menu must be wrapped in a <template> to avoid wasted DOM nodes
+        assert '<template id="' in html, (
+            "renderRowActions must wrap the .action-menu source in a <template> element"
         )

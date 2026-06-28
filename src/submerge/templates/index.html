@@ -338,12 +338,14 @@ function renderRowActions(entry, idx) {
     // Dropdown nur rendern wenn menuItems vorhanden
     const dropdownHtml = menuItems ? `
     <div class="action-dropdown">
-      <button class="action-menu-btn" onclick="toggleActionMenu('${menuId}', this)" title="Weitere Aktionen" aria-haspopup="true">
+      <button class="action-menu-btn" onclick="toggleActionMenu(event, '${menuId}', this)" title="Weitere Aktionen" aria-haspopup="true">
         ${svgIcon('dots', 16)}
       </button>
-      <div class="action-menu" id="${menuId}">
-        ${menuItems}
-      </div>
+      <template id="${menuId}">
+        <div class="action-menu">
+          ${menuItems}
+        </div>
+      </template>
     </div>` : '';
 
     return `<div style="display:flex;gap:6px;align-items:center">
@@ -360,23 +362,26 @@ let _activeMenuOriginId = null;
 /**
  * Open/close a dropdown action menu via a portal (mounted to #dropdown-portal).
  *
- * Two-stage rendering: clone the source menu, append it invisibly to measure its
- * real rendered height, then compute and set the correct viewport position before
- * making it visible.  This avoids hard-coded height assumptions.
+ * The menu source lives in a <template> element — its .content.firstElementChild
+ * is cloned, inserted invisibly to measure real rendered dimensions, then
+ * positioned and revealed.  This avoids hard-coded height assumptions and
+ * keeps the DOM free of hidden placeholder nodes.
  */
-function toggleActionMenu(menuId, triggerBtn) {
-    event.stopPropagation();
+function toggleActionMenu(ev, menuId, triggerBtn) {
+    ev.stopPropagation();
 
     const isAlreadyOpen = _activeMenuOriginId === menuId && _activeMenuEl !== null;
     closeAllMenus();
     if (isAlreadyOpen) return;
 
-    const originMenu = document.getElementById(menuId);
+    const originTemplate = document.getElementById(menuId);
+    if (!originTemplate) return;
+    // <template>.content is a DocumentFragment — firstElementChild is the .action-menu div
+    const originMenu = originTemplate.content.firstElementChild;
     if (!originMenu) return;
 
     const portal = document.getElementById('dropdown-portal');
     const clone = originMenu.cloneNode(true);
-    clone.removeAttribute('id');
     clone.setAttribute('data-portal-for', menuId);
 
     // Stage 1 — mount invisibly off-viewport to measure real height
@@ -392,7 +397,7 @@ function toggleActionMenu(menuId, triggerBtn) {
     clone.style.backgroundColor = 'var(--bg-card)';
     clone.style.border = '1px solid var(--border)';
     clone.style.borderRadius = 'var(--radius-lg)';
-    clone.style.boxShadow = '0 8px 32px rgba(0,0,0,0.85)';
+    clone.style.boxShadow = '';
     clone.style.overflow = 'hidden';
 
     portal.innerHTML = '';
