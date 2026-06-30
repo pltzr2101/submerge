@@ -180,6 +180,28 @@ class TestSyncSubtitles:
         bak_path = tmp_path / "input.srt.bak"
         assert not bak_path.exists(), "Orphan .bak file should be cleaned up"
 
+    def test_atomic_replace_oserror_not_in_place(self, tmp_path: Path):
+        """SyncError raised on OSError during replace when in_place=False (different output)."""
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        output_file = tmp_path / "output.srt"  # different path → in_place=False
+        tmp_output = tmp_path / "output.srt.tmp"
+        tmp_output.write_text("synced")
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+            patch("pathlib.Path.replace", side_effect=OSError("atomic replace failed")),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with pytest.raises(SyncError, match="Failed to atomically replace"):
+                sync_subtitles(ref_file, input_file, output_file)
+        assert not tmp_output.exists()
+        # No .bak should exist since in_place=False
+        assert not (tmp_path / "output.srt.bak").exists()
+
 
 class TestSyncResult:
     """Tests for SyncResult dataclass."""
@@ -377,3 +399,25 @@ class TestSyncSubtitlesToVideo:
                 sync_subtitles_to_video(video, input_file)  # in-place: output_path=None
         bak_path = tmp_path / "input.srt.bak"
         assert not bak_path.exists(), "Orphan .bak file should be cleaned up"
+
+    def test_atomic_replace_oserror_not_in_place(self, tmp_path: Path):
+        """SyncError raised on OSError during replace when in_place=False for video sync."""
+        video = tmp_path / "video.mkv"
+        video.touch()
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        output_file = tmp_path / "output.srt"  # different path → in_place=False
+        tmp_output = tmp_path / "output.srt.tmp"
+        tmp_output.write_text("synced")
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+            patch("pathlib.Path.replace", side_effect=OSError("atomic replace failed")),
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with pytest.raises(SyncError, match="Failed to atomically replace"):
+                sync_subtitles_to_video(video, input_file, output_file)
+        assert not tmp_output.exists()
+        # No .bak should exist since in_place=False
+        assert not (tmp_path / "output.srt.bak").exists()

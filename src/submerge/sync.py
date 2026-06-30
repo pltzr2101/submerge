@@ -95,6 +95,7 @@ def sync_subtitles(
         _validate_subtitle_format(path)
 
     # Backup original only for in-place overwrites
+    backup_path: Path | None = None
     if in_place:
         try:
             backup_path = input_path.with_name(input_path.name + ".bak")
@@ -216,6 +217,7 @@ def sync_subtitles_to_video(
     _validate_subtitle_format(input_path)
 
     # Backup original only for in-place overwrites
+    backup_path: Path | None = None
     if in_place:
         try:
             backup_path = input_path.with_name(input_path.name + ".bak")
