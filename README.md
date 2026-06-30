@@ -362,6 +362,28 @@ src/submerge/
 └── static/             # CSS, JS static assets
 ```
 
+### Upgrading alass
+
+alass is the primary engine for SRT-to-SRT subtitle synchronization (preferred over ffsubsync for segment-based alignment). The binary is downloaded at Docker build time from GitHub releases.
+
+To upgrade to a new alass version:
+
+```bash
+# 1. Download the new binary
+VERSION=2.0.0  # update to desired version
+curl -fsSL -o /tmp/alass-linux64 \
+  "https://github.com/kaegi/alass/releases/download/v${VERSION}/alass-linux64"
+
+# 2. Compute SHA-256 checksum
+sha256sum /tmp/alass-linux64
+
+# 3. Update Dockerfile ARG defaults
+#    ARG ALASS_VERSION=2.0.0
+#    ARG ALASS_SHA256="<new hash>"
+```
+
+The `sha256sum -c` step in the Dockerfile will abort the build if the downloaded binary does not match the expected hash.
+
 ## License
 
 MIT
