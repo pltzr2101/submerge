@@ -29,7 +29,14 @@ from ..hook import (
     start_polling,
 )
 from ..queue import dequeue, enqueue, record_failed
-from ..sync import FfsubsyncNotFoundError, SyncError, sync_subtitles, sync_subtitles_to_video
+from ..sync import (
+    AlassNotFoundError,
+    FfsubsyncNotFoundError,
+    SyncError,
+    sync_subtitles,
+    sync_subtitles_alass,
+    sync_subtitles_to_video,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -303,12 +310,21 @@ async def api_sync(request: Request):
             try:
                 loop = asyncio.get_running_loop()
                 if ref_path:
-                    result = await loop.run_in_executor(
-                        None,
-                        sync_subtitles,
-                        ref_path,
-                        sub_path,
-                    )
+                    try:
+                        result = await loop.run_in_executor(
+                            None,
+                            sync_subtitles_alass,
+                            ref_path,
+                            sub_path,
+                        )
+                    except AlassNotFoundError:
+                        logger.warning("alass not found, falling back to ffsubsync")
+                        result = await loop.run_in_executor(
+                            None,
+                            sync_subtitles,
+                            ref_path,
+                            sub_path,
+                        )
                 else:
                     result = await loop.run_in_executor(
                         None,
@@ -328,12 +344,14 @@ async def api_sync(request: Request):
                 "message": "Sync applied but offset is very large (>30s), verify result",
                 "output": str(result.output_path),
                 "offset_ms": result.offset_ms,
+                "engine": result.engine_used,
             }
 
         return {
             "status": "ok",
             "output": str(result.output_path),
             "offset_ms": result.offset_ms,
+            "engine": result.engine_used,
         }
 
     except HTTPException:

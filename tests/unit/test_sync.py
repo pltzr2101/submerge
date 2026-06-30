@@ -9,11 +9,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from submerge.sync import (
+    AlassNotFoundError,
     FfsubsyncNotFoundError,
     SyncError,
     SyncResult,
     _parse_offset,
     sync_subtitles,
+    sync_subtitles_alass,
     sync_subtitles_to_video,
 )
 
@@ -216,6 +218,10 @@ class TestSyncResult:
         result = SyncResult(success=True, output_path=Path("out.srt"))
         assert result.offset_ms is None
 
+    def test_engine_used_defaults_to_ffsubsync(self):
+        result = SyncResult(success=True, output_path=Path("out.srt"))
+        assert result.engine_used == "ffsubsync"
+
 
 class TestParseOffset:
     """Tests for _parse_offset helper."""
@@ -240,6 +246,140 @@ class TestParseOffset:
 
     def test_returns_none_for_empty(self):
         assert _parse_offset("") is None
+
+
+class TestSyncSubtitlesAlass:
+    """Tests for sync_subtitles_alass."""
+
+    def test_raises_when_alass_not_installed(self, tmp_path: Path):
+        """AlassNotFoundError if alass binary not found."""
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+
+        with (
+            patch("submerge.sync.shutil.which", return_value=None),
+            pytest.raises(AlassNotFoundError, match="alass not found"),
+        ):
+            sync_subtitles_alass(ref_file, input_file, tmp_path / "output.srt")
+
+    def test_successful_sync(self, tmp_path: Path):
+        """Returns SyncResult with engine_used='alass' (in-place)."""
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        tmp_output = tmp_path / "input.sync_tmp.srt"
+        tmp_output.write_text("1\n00:00:01,000 --> 00:00:02,000\nSynced\n")
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/alass"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="offset: 0.5 seconds", stderr="")
+            result = sync_subtitles_alass(ref_file, input_file)
+        assert result.success is True
+        assert result.output_path == input_file
+        assert result.offset_ms == 500
+        assert result.engine_used == "alass"
+        assert input_file.read_text() == "1\n00:00:01,000 --> 00:00:02,000\nSynced\n"
+        assert (tmp_path / "input.srt.bak").exists()
+
+    def test_raises_when_subprocess_fails(self, tmp_path: Path):
+        """SyncError if alass returns non-zero exit code."""
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        output_file = tmp_path / "output.srt"
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/alass"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.side_effect = subprocess.CalledProcessError(1, "alass", stderr="sync error")
+            with pytest.raises(SyncError, match="alass failed"):
+                sync_subtitles_alass(ref_file, input_file, output_file)
+
+    def test_raises_when_output_not_created(self, tmp_path: Path):
+        """SyncError if alass exit code 0 but no .tmp file."""
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        output_file = tmp_path / "output.srt"
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/alass"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with pytest.raises(SyncError, match="Output file was not created"):
+                sync_subtitles_alass(ref_file, input_file, output_file)
+
+    def test_logs_stdout_stderr_on_success(self, tmp_path: Path, caplog):
+        """alass stdout and stderr are logged at DEBUG level."""
+        import logging
+
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        tmp_output = tmp_path / "input.sync_tmp.srt"
+        tmp_output.write_text("synced")
+
+        caplog.set_level(logging.DEBUG, logger="submerge.sync")
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/alass"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="detected offset: 0.5s\n", stderr="warning: low confidence\n"
+            )
+            sync_subtitles_alass(ref_file, input_file)
+        assert "detected offset: 0.5s" in caplog.text
+        assert "warning: low confidence" in caplog.text
+
+    def test_cleans_up_bak_when_output_not_created_in_place(self, tmp_path: Path):
+        """.bak removed when tmp_output not created during in-place alass sync."""
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/alass"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with pytest.raises(SyncError, match="Output file was not created"):
+                sync_subtitles_alass(ref_file, input_file)
+        bak_path = tmp_path / "input.srt.bak"
+        assert not bak_path.exists(), "Orphan .bak file should be cleaned up"
+
+    def test_warns_on_large_offset(self, tmp_path: Path, caplog):
+        """Returns success=False with engine_used='alass' on large offset."""
+        import logging
+
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        tmp_output = tmp_path / "input.sync_tmp.srt"
+        tmp_output.write_text("synced")
+
+        caplog.set_level(logging.WARNING, logger="submerge.sync")
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/alass"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="offset: 35 seconds", stderr="")
+            result = sync_subtitles_alass(ref_file, input_file)
+        assert result.success is False
+        assert result.offset_ms == 35000
+        assert result.engine_used == "alass"
+        assert "Large offset detected" in caplog.text
 
 
 class TestSyncSubtitlesToVideo:

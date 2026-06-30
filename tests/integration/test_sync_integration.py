@@ -12,6 +12,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from starlette.testclient import TestClient
 
+from submerge.sync import AlassNotFoundError
+
 
 @pytest.fixture
 def client_and_sync_settings(monkeypatch, tmp_path):
@@ -228,6 +230,7 @@ class TestSyncEdgeCases:
         assert resp.json()["status"] == "warning"
         assert "verify result" in resp.json()["message"].lower()
         assert resp.json()["offset_ms"] == 35000
+        assert resp.json()["engine"] == "ffsubsync"
 
     def test_sync_unsupported_lang_returns_400(self, client_and_sync_settings):
         client, tmp_path = client_and_sync_settings
@@ -302,3 +305,103 @@ class TestSyncParallelSerialization:
         assert resp2.json()["status"] in ("ok", "error")
         # Both requests started — lock serialised them
         assert call_order == ["start", "finish", "start", "finish"], f"call_order={call_order}"
+
+
+class TestSyncAlassFallback:
+    """alass is preferred for SRT-to-SRT, ffsubsync as fallback."""
+
+    def test_sync_uses_alass_when_available(self, client_and_sync_settings):
+        """When alass is installed, sync_subtitles_alass is called, NOT sync_subtitles."""
+        from submerge.sync import SyncResult
+
+        client, tmp_path = client_and_sync_settings
+
+        de_sub = tmp_path / "film.de.srt"
+        de_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
+        ko_sub = tmp_path / "film.ko.srt"
+        ko_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\n안녕\n")
+        (tmp_path / "film.mkv").touch()
+
+        with (
+            patch(
+                "submerge.routers.merge.sync_subtitles_alass",
+                return_value=SyncResult(
+                    success=True, output_path=de_sub, offset_ms=100, engine_used="alass"
+                ),
+            ) as mock_alass,
+            patch("submerge.routers.merge.sync_subtitles") as mock_ffs,
+        ):
+            resp = client.post("/api/sync", json={"subtitle_path": str(de_sub), "lang": "de"})
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert resp.json()["engine"] == "alass"
+        mock_alass.assert_called_once()
+        mock_ffs.assert_not_called()
+
+    def test_sync_ffsubsync_fallback_when_alass_missing(self, client_and_sync_settings, caplog):
+        """When alass is not installed, ffsubsync is used as fallback with warning logged."""
+        from submerge.sync import SyncResult
+
+        client, tmp_path = client_and_sync_settings
+
+        de_sub = tmp_path / "film.de.srt"
+        de_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
+        ko_sub = tmp_path / "film.ko.srt"
+        ko_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\n안녕\n")
+        (tmp_path / "film.mkv").touch()
+
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="submerge.routers.merge")
+
+        with (
+            patch(
+                "submerge.sync._get_alass_command",
+                side_effect=AlassNotFoundError("alass not found"),
+            ),
+            patch(
+                "submerge.routers.merge.sync_subtitles",
+                return_value=SyncResult(
+                    success=True, output_path=de_sub, offset_ms=100, engine_used="ffsubsync"
+                ),
+            ) as mock_ffs,
+        ):
+            resp = client.post("/api/sync", json={"subtitle_path": str(de_sub), "lang": "de"})
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert resp.json()["engine"] == "ffsubsync"
+        mock_ffs.assert_called_once()
+        assert "alass not found, falling back to ffsubsync" in caplog.text
+
+    def test_sync_video_path_uses_video_sync(self, client_and_sync_settings):
+        """When only video is available (no ref subtitles), uses sync_subtitles_to_video."""
+        from submerge.sync import SyncResult
+
+        client, tmp_path = client_and_sync_settings
+
+        de_sub = tmp_path / "film.de.srt"
+        de_sub.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
+        # No KO subtitle → ref_path will be None, video fallback
+        video_file = tmp_path / "film.mkv"
+        video_file.touch()
+
+        with (
+            patch(
+                "submerge.routers.merge.sync_subtitles_to_video",
+                return_value=SyncResult(
+                    success=True, output_path=de_sub, offset_ms=200, engine_used="ffsubsync"
+                ),
+            ) as mock_video_sync,
+            patch("submerge.routers.merge.sync_subtitles_alass") as mock_alass,
+            patch("submerge.routers.merge.sync_subtitles") as mock_ffs,
+        ):
+            resp = client.post("/api/sync", json={"subtitle_path": str(de_sub), "lang": "de"})
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert resp.json()["engine"] == "ffsubsync"
+        mock_video_sync.assert_called_once()
+        mock_alass.assert_not_called()
+        mock_ffs.assert_not_called()
