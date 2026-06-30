@@ -62,6 +62,71 @@ class TestHealthCheckFilter:
         assert filter_.filter(record) is True
 
 
+class TestHealthEndpoint:
+    """Tests for the /health endpoint response content."""
+
+    def test_health_includes_alass_available(self, monkeypatch):
+        """alass: true when binary is in PATH, false when missing."""
+        from unittest.mock import patch
+
+        from submerge.api import app
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "de-ko")
+
+        # Simulate alass installed
+        with patch("submerge.api.shutil.which") as mock_which:
+            mock_which.side_effect = lambda name: f"/usr/bin/{name}"
+
+            from starlette.testclient import TestClient
+
+            client = TestClient(app)
+            resp = client.get("/health")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["alass"] is True
+        assert data["ffmpeg"] is True
+        assert data["ffprobe"] is True
+
+        # Simulate alass missing
+        with patch("submerge.api.shutil.which") as mock_which:
+            mock_which.side_effect = lambda name: (f"/usr/bin/{name}" if name != "alass" else None)
+
+            resp = client.get("/health")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["alass"] is False
+        assert data["ffmpeg"] is True
+
+        get_settings.cache_clear()
+
+    def test_health_all_ok_independent_of_alass(self, monkeypatch):
+        """all_ok only requires ffmpeg+ffprobe+configured, not alass."""
+        from unittest.mock import patch
+
+        from submerge.api import app
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "de-ko")
+
+        # alass missing but ffmpeg/ffprobe present → still ok
+        with patch("submerge.api.shutil.which") as mock_which:
+            mock_which.side_effect = lambda name: (f"/usr/bin/{name}" if name != "alass" else None)
+
+            from starlette.testclient import TestClient
+
+            client = TestClient(app)
+            resp = client.get("/health")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+
+
 class TestConfigValidationAtStartup:
     """Tests for config validation at startup - critical behavior."""
 

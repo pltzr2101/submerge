@@ -8,6 +8,12 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg curl gcc python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
+# Install alass for SRT-to-SRT subtitle synchronization
+# (pre-built static binary from GitHub releases)
+RUN curl -fsSL -o /usr/local/bin/alass \
+    https://github.com/kaegi/alass/releases/download/v2.0.0/alass-linux64 && \
+    chmod +x /usr/local/bin/alass
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 ENV PATH="/app/.venv/bin:$PATH"

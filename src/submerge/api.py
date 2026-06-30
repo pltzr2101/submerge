@@ -619,9 +619,10 @@ def _handle_hook(video: str, subtitle: str, lang: str, source: str) -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    """Health check - verifies ffmpeg/ffprobe and configuration."""
+    """Health check - verifies ffmpeg/ffprobe, alass, and configuration."""
     ffmpeg_available = shutil.which("ffmpeg") is not None
     ffprobe_available = shutil.which("ffprobe") is not None
+    alass_available = shutil.which("alass") is not None
     settings = _get_effective_settings()
     configured = bool(settings.pairs)
 
@@ -631,6 +632,7 @@ def health() -> dict:
         "status": "ok" if all_ok else "degraded",
         "ffmpeg": ffmpeg_available,
         "ffprobe": ffprobe_available,
+        "alass": alass_available,
         "configured": configured,
         "pairs": [f"{b}-{t}" for b, t in settings.pairs],
     }
