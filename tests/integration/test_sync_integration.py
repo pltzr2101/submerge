@@ -357,7 +357,7 @@ class TestSyncAlassFallback:
 
         with (
             patch(
-                "submerge.sync._get_alass_command",
+                "submerge.routers.merge.sync_subtitles_alass",
                 side_effect=AlassNotFoundError("alass not found"),
             ),
             patch(
