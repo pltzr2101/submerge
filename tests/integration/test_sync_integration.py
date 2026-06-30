@@ -162,7 +162,7 @@ class TestSyncBackupBehavior:
         # Original file unchanged
         assert de_sub.read_text() == original_content
         # Temp file cleaned up
-        assert not (tmp_path / "film.de.srt.tmp").exists()
+        assert not (tmp_path / "film.de.sync_tmp.srt").exists()
 
 
 class TestSyncEdgeCases:

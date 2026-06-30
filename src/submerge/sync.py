@@ -62,6 +62,10 @@ def sync_subtitles(
     When *output_path* is a different path, the synced result is
     written there and *input_path* is left untouched (no backup).
 
+    The intermediate output file uses a ``.sync_tmp`` infix before
+    the real extension (e.g. ``.sync_tmp.srt``) so that ffsubsync
+    can detect the output format from the file extension.
+
     Args:
         reference_path: Path to reference file (well synchronized)
         input_path: Path to file to use as sync input
@@ -105,7 +109,9 @@ def sync_subtitles(
             raise SyncError(f"Failed to create backup: {e}") from e
 
     # Sync into a temporary file, then atomically replace the target
-    tmp_output = target_path.with_name(target_path.name + ".tmp")
+    # ffsubsync detects the output format from the file extension,
+    # so the tmp file must carry the real subtitle suffix (e.g. .srt).
+    tmp_output = target_path.with_name(target_path.stem + ".sync_tmp" + target_path.suffix)
 
     cmd = [
         ffs_cmd,
@@ -183,6 +189,10 @@ def sync_subtitles_to_video(
     When *output_path* is a different path, the synced result is
     written there and *input_path* is left untouched (no backup).
 
+    The intermediate output file uses a ``.sync_tmp`` infix before
+    the real extension (e.g. ``.sync_tmp.srt``) so that ffsubsync
+    can detect the output format from the file extension.
+
     Args:
         video_path: Path to video file (MKV, MP4, etc.)
         input_path: Path to subtitle file to use as sync input
@@ -227,7 +237,9 @@ def sync_subtitles_to_video(
             raise SyncError(f"Failed to create backup: {e}") from e
 
     # Sync into a temporary file, then atomically replace the target
-    tmp_output = target_path.with_name(target_path.name + ".tmp")
+    # ffsubsync detects the output format from the file extension,
+    # so the tmp file must carry the real subtitle suffix (e.g. .srt).
+    tmp_output = target_path.with_name(target_path.stem + ".sync_tmp" + target_path.suffix)
 
     cmd = [
         ffs_cmd,

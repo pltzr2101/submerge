@@ -71,7 +71,7 @@ class TestSyncSubtitles:
         ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output = tmp_path / "input.sync_tmp.srt"
         tmp_output.write_text("1\n00:00:01,000 --> 00:00:02,000\nSynced\n")
 
         with (
@@ -126,7 +126,7 @@ class TestSyncSubtitles:
         ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output = tmp_path / "input.sync_tmp.srt"
         tmp_output.write_text("synced")
 
         caplog.set_level(logging.WARNING, logger="submerge.sync")
@@ -148,7 +148,7 @@ class TestSyncSubtitles:
         ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output = tmp_path / "input.sync_tmp.srt"
         tmp_output.write_text("synced")
 
         caplog.set_level(logging.DEBUG, logger="submerge.sync")
@@ -187,7 +187,7 @@ class TestSyncSubtitles:
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
         output_file = tmp_path / "output.srt"  # different path → in_place=False
-        tmp_output = tmp_path / "output.srt.tmp"
+        tmp_output = tmp_path / "output.sync_tmp.srt"
         tmp_output.write_text("synced")
 
         with (
@@ -289,7 +289,7 @@ class TestSyncSubtitlesToVideo:
         video.touch()
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output = tmp_path / "input.sync_tmp.srt"
         tmp_output.write_text("1\n00:00:01,000 --> 00:00:02,000\nSynced\n")
 
         with (
@@ -337,12 +337,12 @@ class TestSyncSubtitlesToVideo:
                 sync_subtitles_to_video(video, input_file, output_file)
 
     def test_atomic_replace_cleans_up_tmp_on_oserror(self, tmp_path: Path):
-        """SyncError raised on OSError, .tmp cleaned up, .bak preserved."""
+        """SyncError raised on OSError, .sync_tmp.srt cleaned up, .bak preserved."""
         video = tmp_path / "video.mkv"
         video.touch()
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output = tmp_path / "input.sync_tmp.srt"
         tmp_output.write_text("synced")
 
         with (
@@ -368,7 +368,7 @@ class TestSyncSubtitlesToVideo:
         video.touch()
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
-        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output = tmp_path / "input.sync_tmp.srt"
         tmp_output.write_text("synced")
 
         caplog.set_level(logging.DEBUG, logger="submerge.sync")
@@ -407,7 +407,7 @@ class TestSyncSubtitlesToVideo:
         input_file = tmp_path / "input.srt"
         input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
         output_file = tmp_path / "output.srt"  # different path → in_place=False
-        tmp_output = tmp_path / "output.srt.tmp"
+        tmp_output = tmp_path / "output.sync_tmp.srt"
         tmp_output.write_text("synced")
 
         with (
