@@ -126,7 +126,13 @@ def sync_subtitles(
         tmp_output.unlink(missing_ok=True)
         raise SyncError(f"ffsubsync failed:\n{e.stderr}") from e
 
+    logger.debug(f"ffsubsync stdout:\n{result.stdout}")
+    if result.stderr:
+        logger.debug(f"ffsubsync stderr:\n{result.stderr}")
+
     if not tmp_output.exists():
+        if in_place:
+            backup_path.unlink(missing_ok=True)
         raise SyncError(f"Output file was not created: {tmp_output}")
 
     # Atomically move tmp to target (POSIX: rename is atomic)
@@ -243,7 +249,13 @@ def sync_subtitles_to_video(
         tmp_output.unlink(missing_ok=True)
         raise SyncError(f"ffsubsync failed:\n{e.stderr}") from e
 
+    logger.debug(f"ffsubsync stdout:\n{result.stdout}")
+    if result.stderr:
+        logger.debug(f"ffsubsync stderr:\n{result.stderr}")
+
     if not tmp_output.exists():
+        if in_place:
+            backup_path.unlink(missing_ok=True)
         raise SyncError(f"Output file was not created: {tmp_output}")
 
     # Atomically move tmp to target (POSIX: rename is atomic)

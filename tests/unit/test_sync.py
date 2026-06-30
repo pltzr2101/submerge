@@ -140,6 +140,46 @@ class TestSyncSubtitles:
         assert result.offset_ms == 35000
         assert "Large offset detected" in caplog.text
 
+    def test_logs_stdout_stderr_on_success(self, tmp_path: Path, caplog):
+        """ffsubsync stdout and stderr are logged at DEBUG level after run."""
+        import logging
+
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output.write_text("synced")
+
+        caplog.set_level(logging.DEBUG, logger="submerge.sync")
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="detected offset: 0.5s\n", stderr="warning: low confidence\n"
+            )
+            sync_subtitles(ref_file, input_file)
+        assert "detected offset: 0.5s" in caplog.text
+        assert "warning: low confidence" in caplog.text
+
+    def test_cleans_up_bak_when_output_not_created_in_place(self, tmp_path: Path):
+        """.bak file is removed when tmp_output is not created during in-place sync."""
+        ref_file = tmp_path / "reference.srt"
+        ref_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nRef\n")
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with pytest.raises(SyncError, match="Output file was not created"):
+                sync_subtitles(ref_file, input_file)  # in-place: output_path=None
+        bak_path = tmp_path / "input.srt.bak"
+        assert not bak_path.exists(), "Orphan .bak file should be cleaned up"
+
 
 class TestSyncResult:
     """Tests for SyncResult dataclass."""
@@ -297,3 +337,43 @@ class TestSyncSubtitlesToVideo:
         assert not tmp_output.exists()
         bak_path = tmp_path / "input.srt.bak"
         assert bak_path.exists()
+
+    def test_logs_stdout_stderr_on_success(self, tmp_path: Path, caplog):
+        """ffsubsync stdout and stderr are logged at DEBUG level after video sync."""
+        import logging
+
+        video = tmp_path / "video.mkv"
+        video.touch()
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+        tmp_output = tmp_path / "input.srt.tmp"
+        tmp_output.write_text("synced")
+
+        caplog.set_level(logging.DEBUG, logger="submerge.sync")
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="detected offset: 0.5s\n", stderr="warning: low confidence\n"
+            )
+            sync_subtitles_to_video(video, input_file)
+        assert "detected offset: 0.5s" in caplog.text
+        assert "warning: low confidence" in caplog.text
+
+    def test_cleans_up_bak_when_output_not_created_in_place(self, tmp_path: Path):
+        """.bak file is removed when tmp_output is not created during in-place video sync."""
+        video = tmp_path / "video.mkv"
+        video.touch()
+        input_file = tmp_path / "input.srt"
+        input_file.write_text("1\n00:00:01,500 --> 00:00:02,500\nInput\n")
+
+        with (
+            patch("submerge.sync.shutil.which", return_value="/usr/bin/ffs"),
+            patch("submerge.sync.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            with pytest.raises(SyncError, match="Output file was not created"):
+                sync_subtitles_to_video(video, input_file)  # in-place: output_path=None
+        bak_path = tmp_path / "input.srt.bak"
+        assert not bak_path.exists(), "Orphan .bak file should be cleaned up"
