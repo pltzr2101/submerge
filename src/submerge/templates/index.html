@@ -129,6 +129,35 @@
     </div>
 </div>
 
+<!-- Sync Picker Modal -->
+<div id="syncPickerModal" class="modal-overlay hidden" onclick="if(event.target===this)closeSyncPicker()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Sync Subtitles</h3>
+      <button class="modal-close" onclick="closeSyncPicker()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.5rem">Source (Referenz)</label>
+          <select id="syncSourceSelect" style="width:100%"></select>
+        </div>
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.5rem">Targets (Mehrfachauswahl)</label>
+          <select id="syncTargetSelect" multiple style="width:100%;min-height:120px"></select>
+          <label style="margin-top:.5rem;display:flex;align-items:center;gap:.5rem;cursor:pointer">
+            <input type="checkbox" id="syncFolderCheck"> Alle Subtitles im Ordner syncen
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="btnSyncPickerConfirm" class="btn btn-success" onclick="executeSyncPicker()">Sync starten</button>
+      <button class="btn" onclick="closeSyncPicker()">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
 <div class="stats-section">
     <h2>Merge Statistics</h2>
     <div class="stats-grid">
@@ -155,6 +184,7 @@
 <script>
 const PAIRS = {{ pairs | tojson }};
 const LANGS = {{ langs | tojson }};
+const _syncEntries = {};
 let allEntries = [];
 let currentFilter = 'all';
 let currentTypeFilter = 'all';
@@ -387,16 +417,15 @@ function renderRowActions(entry, idx) {
         }
     }
 
-    // Sync + Repair — für JEDE vorhandene Sprache, unabhängig von all_langs_present
-    for (const lang of LANGS) {
-        const st = entry.subtitle_status[lang];
-        if (st && st.present && st.path) {
-            menuItems += `<button class="action-menu-item"
-                onclick="closeAllMenus(); doSync('${escAttr(st.path)}', '${lang}')">
-                ${svgIcon('sync')} Sync Timing: ${lang.toUpperCase()}
-            </button>`;
-        }
-    }
+    // Sync — single entry point via picker modal
+    // Store entry for sync picker lookup
+    _syncEntries[entry.video_path] = entry;
+    menuItems += `<button class="action-menu-item"
+        onclick="closeAllMenus(); openSyncPicker(_syncEntries['${escAttr(entry.video_path)}'])">
+        ${svgIcon('sync')} Sync Timing…
+    </button>`;
+
+    // Repair — für JEDE vorhandene Sprache, unabhängig von all_langs_present
     for (const lang of LANGS) {
         const st = entry.subtitle_status[lang];
         if (st && st.present && st.path) {
@@ -904,6 +933,147 @@ async function doSync(subtitlePath, lang) {
         showStatus('Sync failed: ' + e.message, 'error');
     }
 }
+
+
+// === Sync Picker Modal ===
+
+/**
+ * Open the sync picker modal for a given MediaEntry.
+ *
+ * Populates source/target selects with all available subtitle languages
+ * from the entry's ``subtitle_status`` dict.  Pre-selects the first
+ * language as source and all others as targets.
+ *
+ * @param {Object} entry - A MediaEntry object from /api/media
+ */
+function openSyncPicker(entry) {
+    const sourceSelect = document.getElementById('syncSourceSelect');
+    const targetSelect = document.getElementById('syncTargetSelect');
+    sourceSelect.innerHTML = '';
+    targetSelect.innerHTML = '';
+
+    // Collect all present subtitles from the entry
+    const available = [];
+    for (const lang of Object.keys(entry.subtitle_status)) {
+        const st = entry.subtitle_status[lang];
+        if (st && st.present && st.path) {
+            available.push({lang, path: st.path});
+        }
+    }
+
+    if (available.length < 2) {
+        showStatus('Mindestens 2 Subtitles erforderlich für Sync.', 'warning');
+        return;
+    }
+
+    for (const {lang, path} of available) {
+        const label = lang.toUpperCase();
+        sourceSelect.innerHTML += `<option value="${escAttr(path)}">${label}</option>`;
+        targetSelect.innerHTML += `<option value="${escAttr(path)}">${label}</option>`;
+    }
+
+    // Default: first as source, all others as targets
+    if (targetSelect.options.length > 1) {
+        for (let i = 1; i < targetSelect.options.length; i++) {
+            targetSelect.options[i].selected = true;
+        }
+    }
+
+    document.getElementById('syncFolderCheck').checked = false;
+    document.getElementById('syncPickerModal')._entry = entry;
+    document.getElementById('syncPickerModal').classList.remove('hidden');
+}
+
+
+/** Close the sync picker modal. */
+function closeSyncPicker() {
+    document.getElementById('syncPickerModal').classList.add('hidden');
+}
+
+
+/**
+ * Execute the sync operation based on the picker modal state.
+ *
+ * Supports two modes:
+ * - Folder sync (checkbox): delegates to ``POST /api/sync/folder``
+ * - Multi-target sync: delegates to ``POST /api/sync/arbitrary``
+ */
+async function executeSyncPicker() {
+    const sourceSelect = document.getElementById('syncSourceSelect');
+    const targetSelect = document.getElementById('syncTargetSelect');
+    const folderCheck = document.getElementById('syncFolderCheck');
+    const referencePath = sourceSelect.value;
+
+    if (!referencePath) return;
+
+    document.getElementById('btnSyncPickerConfirm').disabled = true;
+
+    try {
+        if (folderCheck.checked) {
+            showStatus('Folder-Sync läuft…', 'info');
+            const resp = await fetch('/api/sync/folder', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({reference_path: referencePath}),
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                showStatus(
+                    `Folder-Sync: ${data.synced}/${data.total} erfolgreich`,
+                    data.errors > 0 ? 'warning' : 'success',
+                );
+            } else {
+                showStatus(
+                    `Sync fehlgeschlagen: ${data.message || 'Unbekannter Fehler'}`,
+                    'error',
+                );
+            }
+        } else {
+            const targetPaths = Array.from(targetSelect.selectedOptions)
+                .map(o => o.value)
+                .filter(p => p !== referencePath);
+
+            if (targetPaths.length === 0) {
+                showStatus(
+                    'Bitte mindestens einen Target auswählen (nicht identisch mit Source).',
+                    'warning',
+                );
+                return;
+            }
+
+            showStatus(`Synce ${targetPaths.length} Subtitle(s)…`, 'info');
+            const resp = await fetch('/api/sync/arbitrary', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    reference_path: referencePath,
+                    target_paths: targetPaths,
+                }),
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                const ok = data.results.filter(r => r.status === 'ok').length;
+                const err = data.results.filter(r => r.status === 'error').length;
+                showStatus(
+                    `Sync abgeschlossen: ${ok} OK${err > 0 ? `, ${err} Fehler` : ''}`,
+                    err > 0 ? 'warning' : 'success',
+                );
+            } else {
+                showStatus(
+                    `Sync fehlgeschlagen: ${data.message || 'Unbekannter Fehler'}`,
+                    'error',
+                );
+            }
+        }
+    } catch (e) {
+        showStatus('Sync failed: ' + e.message, 'error');
+    } finally {
+        document.getElementById('btnSyncPickerConfirm').disabled = false;
+        closeSyncPicker();
+        setTimeout(loadMedia, 2000);
+    }
+}
+
 
 async function doRepair(subtitlePath, lang) {
     if (!subtitlePath) return;

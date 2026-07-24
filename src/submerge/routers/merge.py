@@ -30,6 +30,7 @@ from ..hook import (
 )
 from ..queue import dequeue, enqueue, record_failed
 from ..sync import (
+    SUPPORTED_FORMATS,
     AlassNotFoundError,
     FfsubsyncNotFoundError,
     SyncError,
@@ -358,4 +359,266 @@ async def api_sync(request: Request):
         raise
     except Exception as e:
         logger.exception(f"Sync error: {e}")
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
+
+
+@router.post("/api/sync/arbitrary")
+async def api_sync_arbitrary(request: Request):
+    """Sync one or more target subtitles to an arbitrary reference subtitle.
+
+    Body (JSON):
+        reference_path: str        — absolute path to the reference (source) subtitle
+        target_paths: list[str]    — one or more absolute paths to target subtitles to sync
+
+    Returns:
+        {"results": [{"path": "...", "status": "ok"|"error", "message": "..."}, ...]}
+    """
+    try:
+        body = await request.json()
+        ref_path_str = body.get("reference_path", "")
+        target_paths_str = body.get("target_paths", None)
+
+        if not ref_path_str:
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "reference_path required"},
+            )
+        if target_paths_str is None or not isinstance(target_paths_str, list):
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "target_paths required (list of strings)"},
+            )
+        if len(target_paths_str) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "target_paths must not be empty"},
+            )
+        if len(target_paths_str) > 50:
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "target_paths exceeds maximum of 50 entries"},
+            )
+
+        ref_path = validate_path(ref_path_str, "reference_path", check_media_root=True)
+
+        if str(ref_path) in target_paths_str:
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "source and target must differ"},
+            )
+
+        target_paths = [
+            validate_path(p, "target_paths[]", check_media_root=True) for p in target_paths_str
+        ]
+
+        async def _sync_one(target_path: Path) -> dict[str, Any]:
+            """Sync a single target to the reference, with per-file locking."""
+            async with _get_sync_lock(str(target_path)):
+                try:
+                    loop = asyncio.get_running_loop()
+                    try:
+                        result = await loop.run_in_executor(
+                            None,
+                            sync_subtitles_alass,
+                            ref_path,
+                            target_path,
+                        )
+                    except AlassNotFoundError:
+                        logger.warning("alass not found, falling back to ffsubsync")
+                        result = await loop.run_in_executor(
+                            None,
+                            sync_subtitles,
+                            ref_path,
+                            target_path,
+                        )
+                    return {
+                        "path": str(target_path),
+                        "status": "ok",
+                        "offset_ms": result.offset_ms,
+                        "engine": result.engine_used,
+                    }
+                except FfsubsyncNotFoundError:
+                    return {
+                        "path": str(target_path),
+                        "status": "error",
+                        "message": "ffsubsync not found",
+                    }
+                except SyncError as e:
+                    return {
+                        "path": str(target_path),
+                        "status": "error",
+                        "message": str(e),
+                    }
+                except Exception as e:
+                    logger.exception(f"Sync error for {target_path}: {e}")
+                    return {
+                        "path": str(target_path),
+                        "status": "error",
+                        "message": str(e),
+                    }
+
+        async def _sync_with_semaphore(target_path: Path) -> dict[str, Any]:
+            async with _get_batch_semaphore():
+                return await _sync_one(target_path)
+
+        tasks = [_sync_with_semaphore(tp) for tp in target_paths]
+        results = list(await asyncio.gather(*tasks, return_exceptions=True))
+
+        # Unwrap any unhandled exceptions from gather
+        safe_results: list[dict[str, Any]] = []
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                safe_results.append({
+                    "path": str(target_paths[i]),
+                    "status": "error",
+                    "message": str(r),
+                })
+            else:
+                safe_results.append(r)
+
+        return {"results": safe_results}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Arbitrary sync error: {e}")
+        raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
+
+
+@router.post("/api/sync/folder")
+async def api_sync_folder(request: Request):
+    """Sync all subtitle files in the same directory as the reference to the reference.
+
+    Body (JSON):
+        reference_path: str   — absolute path to the reference subtitle
+        extensions: list[str] — optional, defaults to [".srt", ".ass", ".ssa", ".vtt"]
+
+    Returns:
+        {"results": [...], "total": N, "synced": N, "errors": N}
+    """
+    try:
+        body = await request.json()
+        ref_path_str = body.get("reference_path", "")
+
+        if not ref_path_str:
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "reference_path required"},
+            )
+
+        ref_path = validate_path(ref_path_str, "reference_path", check_media_root=True)
+
+        if not ref_path.exists():
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "Reference subtitle file not found"},
+            )
+
+        # Determine folder and scan for subtitle files
+        folder = ref_path.parent
+        extensions = body.get("extensions", None)
+        if extensions is None:
+            extensions = sorted(SUPPORTED_FORMATS)
+        else:
+            extensions = [
+                ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in extensions
+            ]
+
+        candidate_paths: list[Path] = []
+        for p in sorted(folder.iterdir()):
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in extensions:
+                continue
+            if p.resolve() == ref_path.resolve():
+                continue
+            candidate_paths.append(p)
+
+        if len(candidate_paths) > 100:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "message": "Too many subtitle files in folder (max 100)",
+                },
+            )
+
+        async def _sync_one(target_path: Path) -> dict[str, Any]:
+            """Sync a single target to the reference, with per-file locking."""
+            async with _get_sync_lock(str(target_path)):
+                try:
+                    loop = asyncio.get_running_loop()
+                    try:
+                        result = await loop.run_in_executor(
+                            None,
+                            sync_subtitles_alass,
+                            ref_path,
+                            target_path,
+                        )
+                    except AlassNotFoundError:
+                        logger.warning("alass not found, falling back to ffsubsync")
+                        result = await loop.run_in_executor(
+                            None,
+                            sync_subtitles,
+                            ref_path,
+                            target_path,
+                        )
+                    return {
+                        "path": str(target_path),
+                        "status": "ok",
+                        "offset_ms": result.offset_ms,
+                        "engine": result.engine_used,
+                    }
+                except FfsubsyncNotFoundError:
+                    return {
+                        "path": str(target_path),
+                        "status": "error",
+                        "message": "ffsubsync not found",
+                    }
+                except SyncError as e:
+                    return {
+                        "path": str(target_path),
+                        "status": "error",
+                        "message": str(e),
+                    }
+                except Exception as e:
+                    logger.exception(f"Folder sync error for {target_path}: {e}")
+                    return {
+                        "path": str(target_path),
+                        "status": "error",
+                        "message": str(e),
+                    }
+
+        async def _sync_with_semaphore(target_path: Path) -> dict[str, Any]:
+            async with _get_batch_semaphore():
+                return await _sync_one(target_path)
+
+        tasks = [_sync_with_semaphore(tp) for tp in candidate_paths]
+        results = list(await asyncio.gather(*tasks, return_exceptions=True))
+
+        safe_results: list[dict[str, Any]] = []
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                safe_results.append({
+                    "path": str(candidate_paths[i]),
+                    "status": "error",
+                    "message": str(r),
+                })
+            else:
+                safe_results.append(r)
+
+        synced = sum(1 for r in safe_results if r["status"] == "ok")
+        errors = sum(1 for r in safe_results if r["status"] == "error")
+
+        return {
+            "results": safe_results,
+            "total": len(safe_results),
+            "synced": synced,
+            "errors": errors,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Folder sync error: {e}")
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e

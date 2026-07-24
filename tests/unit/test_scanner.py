@@ -7,6 +7,7 @@ from pathlib import Path
 from submerge.config import get_settings_for_test
 from submerge.scanner import (
     _is_video_file,
+    _scan_additional_subtitles,
     entry_to_dict,
     find_videos_needing_merge,
     scan_directory,
@@ -209,3 +210,106 @@ class TestEntryToDict:
         d = entry_to_dict(entries[0])
         assert "pairs" in d
         assert "required_langs" in d
+
+
+class TestScanAdditionalSubtitles:
+    """Tests for _scan_additional_subtitles — discovers non-configured languages."""
+
+    def test_adds_non_configured_language(self, tmp_path: Path):
+        """Subtitle file with a language not in settings.pairs is discovered."""
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        (tmp_path / "Show.de.srt").touch()
+        (tmp_path / "Show.fr.srt").touch()
+
+        status: dict = {}
+        _scan_additional_subtitles(video, status)
+
+        assert "de" in status
+        assert status["de"]["present"] is True
+        assert "fr" in status
+        assert status["fr"]["present"] is True
+
+    def test_does_not_overwrite_existing(self, tmp_path: Path):
+        """Already-populated keys are not overwritten by the scanner."""
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        (tmp_path / "Show.de.srt").touch()
+
+        status = {"de": {"present": True, "path": "/custom/path"}}
+        _scan_additional_subtitles(video, status)
+
+        assert status["de"]["path"] == "/custom/path"
+
+    def test_skips_non_subtitle_files(self, tmp_path: Path):
+        """Non-subtitle files are ignored."""
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        (tmp_path / "Show.de.txt").touch()
+        (tmp_path / "Show.en.pdf").touch()
+
+        status: dict = {}
+        _scan_additional_subtitles(video, status)
+
+        assert status == {}
+
+    def test_skips_unrelated_files(self, tmp_path: Path):
+        """Files not matching the video stem are ignored."""
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        (tmp_path / "Other.de.srt").touch()
+
+        status: dict = {}
+        _scan_additional_subtitles(video, status)
+
+        assert status == {}
+
+    def test_handles_three_letter_codes(self, tmp_path: Path):
+        """3-letter language codes are normalized via langmap."""
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        (tmp_path / "Show.deu.srt").touch()
+        (tmp_path / "Show.fra.srt").touch()
+
+        status: dict = {}
+        _scan_additional_subtitles(video, status)
+
+        assert "de" in status
+        assert "fr" in status
+
+    def test_skips_sdh_hi_cc_suffixes(self, tmp_path: Path):
+        """SDH/HI/CC/forced tags are not treated as language codes."""
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        (tmp_path / "Show.hi.srt").touch()
+        (tmp_path / "Show.sdh.srt").touch()
+
+        status: dict = {}
+        _scan_additional_subtitles(video, status)
+
+        assert "hi" not in status
+        assert "sdh" not in status
+
+    def test_integration_with_scan_directory(self, tmp_path: Path):
+        """scan_directory includes additional subtitles from _scan_additional_subtitles."""
+        settings = get_settings_for_test(pairs="de-ko")
+        video = tmp_path / "Show.mkv"
+        video.touch()
+        (tmp_path / "Show.de.srt").touch()
+        (tmp_path / "Show.ko.srt").touch()
+        (tmp_path / "Show.fr.srt").touch()
+        (tmp_path / "Show.en.srt").touch()
+
+        entries = list(scan_directory(tmp_path, settings))
+        assert len(entries) == 1
+        st = entries[0].subtitle_status
+
+        # Configured languages
+        assert st["de"]["present"] is True
+        assert st["ko"]["present"] is True
+
+        # Additionally discovered languages
+        assert "fr" in st
+        assert st["fr"]["present"] is True
+        assert "en" in st
+        assert st["en"]["present"] is True

@@ -10,6 +10,8 @@ from typing import Any
 
 from .config import SubtoolsSettings, get_settings
 from .hook import find_subtitle_path
+from .langmap import normalize_lang
+from .sync import SUPPORTED_FORMATS
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,59 @@ class MediaEntry:
 def _is_video_file(path: Path) -> bool:
     """Check if a path is a video file by extension."""
     return path.suffix.lower() in VIDEO_EXTENSIONS
+
+
+def _scan_additional_subtitles(
+    video_path: Path,
+    subtitle_status: dict[str, dict[str, Any]],
+) -> None:
+    """Scan the video directory for subtitle files not already in subtitle_status.
+
+    Detects subtitle files matching the pattern ``videoname.LANG.ext`` and
+    adds them to *subtitle_status* keyed by their ISO 639-1 language code.
+    Only add entries whose language key does not already exist — configured
+    languages from *settings.pairs* always take precedence.
+
+    Args:
+        video_path: Path to the video file.
+        subtitle_status: Existing status dict (mutated in-place).
+    """
+    folder = video_path.parent
+    stem_lower = video_path.stem.lower()
+
+    for entry in sorted(folder.iterdir()):
+        if not entry.is_file():
+            continue
+        if entry.suffix.lower() not in SUPPORTED_FORMATS:
+            continue
+
+        # Match pattern: videoname.LANG.ext
+        name = entry.stem
+        if not name.lower().startswith(stem_lower):
+            continue
+
+        suffix_part = name[len(video_path.stem):]
+        if not suffix_part.startswith("."):
+            continue
+
+        lang_tag = suffix_part[1:]  # Strip leading dot
+        if not lang_tag:
+            continue
+
+        # Skip known secondary suffixes (hi, sdh, cc, forced)
+        secondary_tags = {"hi", "sdh", "cc", "forced"}
+        if lang_tag.lower() in secondary_tags:
+            continue
+
+        lang_code = normalize_lang(lang_tag)
+        if lang_code is None:
+            continue
+
+        if lang_code not in subtitle_status:
+            subtitle_status[lang_code] = {
+                "present": True,
+                "path": str(entry),
+            }
 
 
 def scan_directory(
@@ -72,6 +127,9 @@ def scan_directory(
                 "present": sub_path is not None,
                 "path": str(sub_path) if sub_path else None,
             }
+
+        # Scan directory for all subtitle files (including non-configured languages)
+        _scan_additional_subtitles(video_path, subtitle_status)
 
         # Check merged status for each pair
         merged_status: dict[str, dict[str, Any]] = {}
