@@ -489,7 +489,10 @@ async def api_sync_arbitrary(request: Request):
 
 @router.post("/api/sync/folder")
 async def api_sync_folder(request: Request):
-    """Sync all subtitle files in the same directory as the reference to the reference.
+    """Sync all subtitle files belonging to the same episode as the reference.
+
+    Only subtitle files that share the same video (episode) as the reference
+    are synced — other episodes in the same directory are never touched.
 
     Body (JSON):
         reference_path: str   — absolute path to the reference subtitle
@@ -516,8 +519,23 @@ async def api_sync_folder(request: Request):
                 detail={"status": "error", "message": "Reference subtitle file not found"},
             )
 
-        # Determine folder and scan for subtitle files
+        # Find the video this subtitle belongs to — episode-scoped sync
+        video_file = find_video_for_subtitle(ref_path)
+        if video_file is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status": "error",
+                    "message": (
+                        "Cannot determine which episode this subtitle belongs to. "
+                        "Make sure the corresponding video file exists in the same directory."
+                    ),
+                },
+            )
+
         folder = ref_path.parent
+        video_stem = video_file.stem
+
         extensions = body.get("extensions", None)
         if extensions is None:
             extensions = sorted(SUPPORTED_FORMATS)
@@ -526,6 +544,7 @@ async def api_sync_folder(request: Request):
                 ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in extensions
             ]
 
+        # Only collect subtitle files belonging to the same episode (video stem)
         candidate_paths: list[Path] = []
         for p in sorted(folder.iterdir()):
             if not p.is_file():
@@ -534,6 +553,10 @@ async def api_sync_folder(request: Request):
                 continue
             if p.resolve() == ref_path.resolve():
                 continue
+            # Episode match: stem must equal video stem, or start with "video_stem."
+            p_stem = p.stem
+            if p_stem != video_stem and not p_stem.startswith(video_stem + "."):
+                continue
             candidate_paths.append(p)
 
         if len(candidate_paths) > 100:
@@ -541,7 +564,7 @@ async def api_sync_folder(request: Request):
                 status_code=400,
                 detail={
                     "status": "error",
-                    "message": "Too many subtitle files in folder (max 100)",
+                    "message": "Too many subtitle files for this episode (max 100)",
                 },
             )
 

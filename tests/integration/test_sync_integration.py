@@ -672,16 +672,18 @@ class TestSyncArbitraryPartialSuccess:
 
 
 # =============================================================================
-# /api/sync/folder  —  sync all subtitles in directory
+# /api/sync/folder  —  episode-scoped bulk sync
 # =============================================================================
 
 
 class TestSyncFolder:
-    """Tests for POST /api/sync/folder."""
+    """Tests for POST /api/sync/folder — episode-scoped bulk sync."""
 
-    def test_folder_sync_syncs_all_siblings(self, arbitrary_client):
+    def test_syncs_all_same_episode_siblings(self, arbitrary_client):
+        """All subtitle files of the same episode are synced."""
         client, tmp_path = arbitrary_client
 
+        (tmp_path / "film.mkv").touch()
         ref = tmp_path / "film.de.srt"
         ref.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
         tgt1 = tmp_path / "film.ko.srt"
@@ -706,27 +708,48 @@ class TestSyncFolder:
         assert data["synced"] == 2
         assert data["errors"] == 0
 
-    def test_folder_sync_empty_folder(self, arbitrary_client):
+    def test_skips_other_episodes_in_same_folder(self, arbitrary_client):
+        """Subtitle files from other episodes in the same folder are NOT touched."""
         client, tmp_path = arbitrary_client
 
-        ref = tmp_path / "film.de.srt"
+        # Episode 1
+        (tmp_path / "Show.S01E01.mkv").touch()
+        ref = tmp_path / "Show.S01E01.de.srt"
         ref.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
+        tgt = tmp_path / "Show.S01E01.en.srt"
+        tgt.write_text("1\n00:00:01,500 --> 00:00:02,500\nHello\n")
 
-        resp = client.post(
-            "/api/sync/folder",
-            json={"reference_path": str(ref)},
-        )
+        # Episode 2 — should NOT be synced
+        (tmp_path / "Show.S01E02.mkv").touch()
+        other_ep = tmp_path / "Show.S01E02.de.srt"
+        other_ep.write_text("1\n00:00:01,500 --> 00:00:02,500\nAndere\n")
+
+        with patch(
+            "submerge.routers.merge.sync_subtitles_alass",
+            return_value=MagicMock(
+                success=True, output_path=tgt, offset_ms=100, engine_used="alass"
+            ),
+        ) as mock_alass:
+            resp = client.post(
+                "/api/sync/folder",
+                json={"reference_path": str(ref)},
+            )
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 0
-        assert data["synced"] == 0
-        assert data["errors"] == 0
-        assert data["results"] == []
+        assert data["total"] == 1  # Only the E01 target, NOT the E02 file
+        assert data["synced"] == 1
 
-    def test_folder_sync_excludes_reference(self, arbitrary_client):
+        # Verify only same-episode target was synced
+        call_args = mock_alass.call_args
+        assert Path(call_args[0][0]) == ref.resolve()  # reference
+        assert Path(call_args[0][1]) == tgt.resolve()  # same episode target
+
+    def test_excludes_reference_itself(self, arbitrary_client):
+        """Reference subtitle is excluded from targets."""
         client, tmp_path = arbitrary_client
 
+        (tmp_path / "film.mkv").touch()
         ref = tmp_path / "film.de.srt"
         ref.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
 
@@ -744,7 +767,42 @@ class TestSyncFolder:
         assert resp.status_code == 200
         mock_alass.assert_not_called()  # reference is excluded
 
-    def test_folder_sync_missing_reference_path_returns_400(self, arbitrary_client):
+    def test_no_other_subs_returns_empty(self, arbitrary_client):
+        """When the episode has no other subtitles, empty results are returned."""
+        client, tmp_path = arbitrary_client
+
+        (tmp_path / "film.mkv").touch()
+        ref = tmp_path / "film.de.srt"
+        ref.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
+
+        resp = client.post(
+            "/api/sync/folder",
+            json={"reference_path": str(ref)},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 0
+        assert data["synced"] == 0
+        assert data["errors"] == 0
+        assert data["results"] == []
+
+    def test_no_video_returns_400(self, arbitrary_client):
+        """When the episode's video cannot be found, a clear 400 error is returned."""
+        client, tmp_path = arbitrary_client
+
+        ref = tmp_path / "orphan.de.srt"
+        ref.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
+
+        resp = client.post(
+            "/api/sync/folder",
+            json={"reference_path": str(ref)},
+        )
+
+        assert resp.status_code == 400
+        assert "Cannot determine which episode" in resp.json()["detail"]["message"]
+
+    def test_missing_reference_path_returns_400(self, arbitrary_client):
         client, tmp_path = arbitrary_client
 
         resp = client.post("/api/sync/folder", json={})

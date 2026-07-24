@@ -146,7 +146,7 @@
           <label style="font-weight:600;display:block;margin-bottom:.5rem">Targets (Mehrfachauswahl)</label>
           <select id="syncTargetSelect" multiple style="width:100%;min-height:120px"></select>
           <label style="margin-top:.5rem;display:flex;align-items:center;gap:.5rem;cursor:pointer">
-            <input type="checkbox" id="syncFolderCheck"> Alle Subtitles im Ordner syncen
+            <input type="checkbox" id="syncFolderCheck"> Alle Subtitles dieser Episode syncen
           </label>
         </div>
       </div>
@@ -995,8 +995,9 @@ function closeSyncPicker() {
  * Execute the sync operation based on the picker modal state.
  *
  * Supports two modes:
- * - Folder sync (checkbox): delegates to ``POST /api/sync/folder``
- * - Multi-target sync: delegates to ``POST /api/sync/arbitrary``
+ * - Episode sync (checkbox): syncs all subtitles of the same episode
+ *   via ``POST /api/sync/folder``
+ * - Multi-target sync: syncs selected targets via ``POST /api/sync/arbitrary``
  */
 async function executeSyncPicker() {
     const sourceSelect = document.getElementById('syncSourceSelect');
@@ -1010,7 +1011,7 @@ async function executeSyncPicker() {
 
     try {
         if (folderCheck.checked) {
-            showStatus('Folder-Sync läuft…', 'info');
+            showStatus('Episoden-Sync läuft…', 'info');
             const resp = await fetch('/api/sync/folder', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1019,7 +1020,7 @@ async function executeSyncPicker() {
             const data = await resp.json();
             if (resp.ok) {
                 showStatus(
-                    `Folder-Sync: ${data.synced}/${data.total} erfolgreich`,
+                    `Episoden-Sync: ${data.synced}/${data.total} erfolgreich`,
                     data.errors > 0 ? 'warning' : 'success',
                 );
             } else {

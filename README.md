@@ -196,7 +196,7 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `POST` | `/api/batch-merge` | Trigger merge for multiple videos. Body: `{"video_paths": ["<path>", ...], "template": "<preset>", "overwrite": true}`. Response: `{"results": [{"video": "<name>", "status": "merged"|"skipped"|"error"|"polling", ...}]}` |
 | `POST` | `/api/sync` | Synchronize a subtitle file against its configured pair language via ffsubsync/alass |
 | `POST` | `/api/sync/arbitrary` | Sync one or more target subtitles to an arbitrary reference subtitle. Body: `{"reference_path": "<path>", "target_paths": ["<path1>", ...]}`. Response: `{"results": [{"path": "...", "status": "ok"|"error", "message": "..."}]}` |
-| `POST` | `/api/sync/folder` | Sync all subtitle files in the same directory as the reference. Body: `{"reference_path": "<path>", "extensions": [".srt", ...]}` (extensions optional). Response: `{"results": [...], "total": N, "synced": N, "errors": N}` |
+| `POST` | `/api/sync/folder` | Sync all subtitle files belonging to the same episode as the reference. Body: `{"reference_path": "<path>", "extensions": [".srt", ...]}` (extensions optional). Returns 400 if no associated video is found. Response: `{"results": [...], "total": N, "synced": N, "errors": N}` |
 | `POST` | `/api/repair/fix-overlaps` | Fix overlapping events in a single subtitle track. ASS tracks receive inline ``{\an8}`` alignment overrides, SRT tracks get time nudging (+1 ms). Body: `{"subtitle_path": "<path>"}`. Response: `{"status": "ok", "repositioned": N, "output_path": "...", "modified": true/false}` |
 | `POST` | `/api/repair/batch-fix-overlaps` | Fix overlapping events in multiple subtitle files with a single request (avoids rate-limit on large libraries). Body: `{"subtitle_paths": ["<path1>", "<path2>", ...], "exclude_patterns": ["<regex>", ...]}` (``exclude_patterns`` optional). Response: `{"status": "ok", "total": N, "fixed": N, "skipped": N, "failed": N, "repositioned": N}` |
 | `POST` | `/scan` | Scan all directories, start missing merges |
@@ -252,7 +252,7 @@ Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282` using 
 
 | Page | Description |
 |------|-------------|
-| **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), per-row Repair/Merge/Re-merge buttons, unified SVG-icon dropdown row actions (preview, sync, repair overlaps, delete), media type filter (🎬 Movies / 📺 TV-Serien), **collapsible TV series hierarchy** (Series → Season → Episodes), **smart search bar** with fuzzy matching, batch merge/repair/delete toolbar, "Scan & Auto-Merge" button, "Repair All" button |
+| **Dashboard** (`/`) | Media overview table with subtitle status (DE ✓/✗, KO ✓/✗, merged ✓/✗), per-row Repair/Merge/Re-merge buttons, unified SVG-icon dropdown row actions (preview, episode-scoped sync, repair overlaps, delete), media type filter (🎬 Movies / 📺 TV-Serien), **collapsible TV series hierarchy** (Series → Season → Episodes), **smart search bar** with fuzzy matching, batch merge/repair/delete toolbar, "Scan & Auto-Merge" button, "Repair All" button |
 | **History** (`/history`) | Merge history table showing all past merge operations with status badges, duration, output files, and timestamps. Client-side filtering by status (all / merged / failed) and media type (all / 🎬 movies / 📺 TV series), auto-refresh every 30 s, clear-button |
 | **Settings** (`/settings`) | Override `SUBTOOLS_*` environment variables at runtime. **In-memory only — changes are lost on container restart.** To persist style changes permanently: save as a Preset in the Style Editor, then set it as the Default Template via `POST /api/settings/default-template` or the Style Editor UI. |
 | **Style Editor** (`/styles`) | Two-tab editor (Bottom/Top) with color pickers, font size, outline/shadow controls, CJK font selector, canvas preview, preset save/load, ASS export button |
@@ -269,18 +269,18 @@ The **Sync Timing…** action in each row's dropdown menu opens a sync picker mo
 
 - Syncing a newly downloaded subtitle (e.g., `es.srt`) against an already-synced reference (`de.srt`)
 - Syncing multiple targets in parallel against one reference
-- Folder-level sync: all subtitle files in the video's folder are synced to the selected reference at once
+- Episode-level bulk sync: all subtitle files belonging to the **same episode** (same video file) are synced to the selected reference at once — other episodes in the same directory are never touched
 
 **How it works:**
 
 1. The scanner now discovers **all** subtitle files in a video's directory — even languages not listed in `SUBTOOLS_PAIRS`. These extra languages appear in the sync picker but do **not** create new columns in the dashboard table.
 2. Click **Sync Timing…** → select a **Source** (reference) and one or more **Targets** → click **Sync starten**.
-3. Enable the **Alle Subtitles im Ordner syncen** checkbox to sync every subtitle in the folder against the reference (max 100 files).
+3. Enable the **Alle Subtitles dieser Episode syncen** checkbox to sync every subtitle belonging to the same episode against the reference (max 100 files). The episode is determined by finding the video file associated with the reference subtitle.
 
 **API Endpoints:**
 
 - `POST /api/sync/arbitrary` — sync specific targets to a reference. Body: `{"reference_path": "...", "target_paths": ["...", ...]}`. Supports up to 50 target paths per request with partial-success semantics (individual errors don't abort other targets).
-- `POST /api/sync/folder` — sync all subtitle files in a folder to a reference. Body: `{"reference_path": "...", "extensions": [".srt", ...]}` (extensions optional, defaults to `.srt`, `.ass`, `.ssa`, `.vtt`).
+- `POST /api/sync/folder` — sync all subtitle files belonging to the **same episode** as the reference. Body: `{"reference_path": "...", "extensions": [".srt", ...]}` (extensions optional, defaults to `.srt`, `.ass`, `.ssa`, `.vtt`). Returns 400 if the associated video file cannot be found. Other episodes in the same directory are never affected.
 
 Both endpoints serialize parallel calls on the same file via per-file locks and use the batch semaphore (max 4 concurrent operations).
 
