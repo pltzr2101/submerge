@@ -809,3 +809,56 @@ class TestSyncFolder:
 
         assert resp.status_code == 400
         assert "reference_path required" in resp.json()["detail"]["message"]
+
+    def test_rejects_path_outside_media_root(self, arbitrary_client):
+        """Reference path outside media_root is rejected with 400."""
+        client, tmp_path = arbitrary_client
+
+        outside = Path("/tmp/outside.srt")
+
+        resp = client.post(
+            "/api/sync/folder",
+            json={"reference_path": str(outside)},
+        )
+
+        assert resp.status_code == 400
+        assert "must be within media root" in resp.json()["detail"]["message"]
+
+    def test_stem_ambiguity_uses_exact_match_only(self, arbitrary_client):
+        """When film.mkv and film.extended.mkv coexist, prefix-matching is disabled.
+
+        film.extended.de.srt must NOT be synced when the reference is film.de.srt.
+        """
+        client, tmp_path = arbitrary_client
+
+        # film.mkv — the target episode
+        (tmp_path / "film.mkv").touch()
+        ref = tmp_path / "film.de.srt"
+        ref.write_text("1\n00:00:01,000 --> 00:00:02,000\nHallo\n")
+        tgt = tmp_path / "film.ko.srt"
+        tgt.write_text("1\n00:00:01,500 --> 00:00:02,500\n안녕\n")
+
+        # film.extended.mkv — different video, ambiguous prefix
+        (tmp_path / "film.extended.mkv").touch()
+        extended_sub = tmp_path / "film.extended.de.srt"
+        extended_sub.write_text("1\n00:00:01,500 --> 00:00:02,500\nErweitert\n")
+
+        with patch(
+            "submerge.routers.merge.sync_subtitles_alass",
+            return_value=MagicMock(
+                success=True, output_path=tgt, offset_ms=100, engine_used="alass"
+            ),
+        ):
+            resp = client.post(
+                "/api/sync/folder",
+                json={"reference_path": str(ref)},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        # Only film.ko.srt should be synced — NOT film.extended.de.srt
+        assert data["total"] == 1
+        assert data["synced"] == 1
+        paths = {r["path"] for r in data["results"]}
+        assert str(extended_sub) not in paths
+        assert str(tgt) in paths

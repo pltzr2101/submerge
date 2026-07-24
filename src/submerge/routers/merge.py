@@ -487,12 +487,39 @@ async def api_sync_arbitrary(request: Request):
         raise HTTPException(status_code=500, detail={"status": "error", "message": str(e)}) from e
 
 
+VIDEO_EXTENSIONS: frozenset[str] = frozenset({".mkv", ".mp4", ".avi", ".m4v"})
+
+
+def _is_unambiguous_episode_prefix(
+    video_stem: str,
+    folder: Path,
+    video_extensions: frozenset[str] = VIDEO_EXTENSIONS,
+) -> bool:
+    """Return False if another video in *folder* has a stem starting with ``video_stem + "."``.
+
+    When two video files share a prefix (e.g. ``film.mkv`` and
+    ``film.extended.mkv``), prefix-based subtitle matching is ambiguous.
+    In that case the caller should fall back to exact stem matching.
+    """
+    for entry in folder.iterdir():
+        if not entry.is_file():
+            continue
+        if entry.suffix.lower() not in video_extensions:
+            continue
+        if entry.stem == video_stem:
+            continue
+        if entry.stem.startswith(video_stem + "."):
+            return False
+    return True
+
+
 @router.post("/api/sync/folder")
 async def api_sync_folder(request: Request):
     """Sync all subtitle files belonging to the same episode as the reference.
 
     Only subtitle files that share the same video (episode) as the reference
     are synced — other episodes in the same directory are never touched.
+    All paths are validated to be within SUBTOOLS_MEDIA_ROOT.
 
     Body (JSON):
         reference_path: str   — absolute path to the reference subtitle
@@ -544,7 +571,11 @@ async def api_sync_folder(request: Request):
                 ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in extensions
             ]
 
-        # Only collect subtitle files belonging to the same episode (video stem)
+        # Only collect subtitle files belonging to the same episode (video stem).
+        # If another video shares the stem prefix (e.g. film.mkv + film.extended.mkv),
+        # verify each candidate via find_video_for_subtitle to avoid cross-episode
+        # contamination instead of relying on prefix-based matching.
+        allow_prefix = _is_unambiguous_episode_prefix(video_stem, folder)
         candidate_paths: list[Path] = []
         for p in sorted(folder.iterdir()):
             if not p.is_file():
@@ -553,11 +584,15 @@ async def api_sync_folder(request: Request):
                 continue
             if p.resolve() == ref_path.resolve():
                 continue
-            # Episode match: stem must equal video stem, or start with "video_stem."
-            p_stem = p.stem
-            if p_stem != video_stem and not p_stem.startswith(video_stem + "."):
-                continue
-            candidate_paths.append(p)
+            if allow_prefix:
+                p_stem = p.stem
+                if p_stem == video_stem or p_stem.startswith(video_stem + "."):
+                    candidate_paths.append(p)
+            else:
+                # Ambiguous prefix — verify episode membership via video lookup.
+                p_video = find_video_for_subtitle(p)
+                if p_video is not None and p_video.resolve() == video_file.resolve():
+                    candidate_paths.append(p)
 
         if len(candidate_paths) > 100:
             raise HTTPException(

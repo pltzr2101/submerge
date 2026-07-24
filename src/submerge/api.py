@@ -277,6 +277,10 @@ def create_app() -> FastAPI:
     )
 
     # Rate limiting (in-memory, per deployment)
+    # NOTE: _rate_limits, _rate_limit_request_count, _rate_limit_last_cleanup and
+    # _RATE_LIMIT_EXEMPT_PREFIXES live in the closure scope of create_app() —
+    # each call to create_app() (e.g. importlib.reload in tests) creates a fully
+    # independent instance with its own isolated bucket dict.
     _rate_limits: dict[str, list[float]] = {}
     _rate_limit_request_count: int = 0
     _rate_limit_last_cleanup: float = 0.0

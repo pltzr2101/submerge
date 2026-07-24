@@ -246,6 +246,10 @@ Same POST format as the Bazarr hook — form fields `video`, `subtitle`, `lang`.
 | `GET` | `/api/settings` | Returns the current effective runtime settings. `notification_token` is always masked as `"***"` in the response. |
 | `POST` | `/api/settings` | Update runtime settings (in-memory, not persisted) |
 
+## Security
+
+**Path restriction**: `/api/sync/arbitrary` and `/api/sync/folder` enforce that all paths must be within `SUBTOOLS_MEDIA_ROOT`. Requests with paths outside this boundary will be rejected with HTTP 400. Ensure `SUBTOOLS_MEDIA_ROOT` is correctly set in your Docker volume configuration.
+
 ## Web UI
 
 Submerge ships with a responsive dark-mode Web UI at `http://<host>:8282` using the Inter font family (loaded via Google Fonts CDN on first visit):
