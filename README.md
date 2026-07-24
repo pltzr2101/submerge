@@ -356,8 +356,9 @@ uv run uvicorn submerge.api:app --reload --port 8282
 # Run all tests
 uv run pytest
 
-# Lint
+# Lint & Format
 uv run ruff check src tests
+uv run ruff format src tests
 ```
 
 ### Project Structure
