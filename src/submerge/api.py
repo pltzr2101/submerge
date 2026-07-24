@@ -281,8 +281,15 @@ def create_app() -> FastAPI:
     _rate_limit_request_count: int = 0
     _rate_limit_last_cleanup: float = 0.0
 
+    # Paths excluded from rate limiting — health checks should never be throttled.
+    _RATE_LIMIT_EXEMPT_PREFIXES = ("/health",)
+
     class RateLimitMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
+            path = request.url.path
+            if any(path == p or path.startswith(p) for p in _RATE_LIMIT_EXEMPT_PREFIXES):
+                return await call_next(request)
+
             rate_limit_rpm = getattr(_get_effective_settings(), "rate_limit_rpm", 30)
             if rate_limit_rpm <= 0:
                 return await call_next(request)

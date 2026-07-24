@@ -505,6 +505,70 @@ class TestRateLimitNotBypassedAfterIdle:
         get_settings.cache_clear()
 
 
+class TestRateLimitHealthExemption:
+    """Health endpoint is fully exempt from rate limiting."""
+
+    def test_health_never_rate_limited(self, monkeypatch):
+        """``GET /health`` always returns 200 even when the bucket is full."""
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "de-ko")
+        monkeypatch.setenv("SUBTOOLS_RATE_LIMIT_RPM", "1")
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+
+        from starlette.testclient import TestClient
+
+        from submerge.api import app
+
+        client = TestClient(app)
+        t0 = 1_000_000_000.0
+
+        with (
+            patch("submerge.api.shutil.which", return_value="/usr/bin/ffmpeg"),
+            patch("time.monotonic", return_value=t0),
+        ):
+            # Fill the bucket with /api/polls requests
+            client.get("/api/polls")  # 1st — ok
+            r = client.get("/api/polls")  # 2nd — 429 (RPM=1)
+            assert r.status_code == 429, f"Expected 429, got {r.status_code}"
+
+            # Health endpoint must still pass despite full bucket
+            r_health = client.get("/health")
+            assert r_health.status_code == 200, f"Health must be exempt, got {r_health.status_code}"
+
+        get_settings.cache_clear()
+
+    def test_other_endpoints_still_rate_limited(self, monkeypatch):
+        """Non-health endpoints are still rate-limited after the exemption fix."""
+        monkeypatch.setenv("SUBTOOLS_PAIRS", "de-ko")
+        monkeypatch.setenv("SUBTOOLS_RATE_LIMIT_RPM", "2")
+
+        import importlib
+
+        import submerge.api
+        from submerge.config import get_settings
+
+        get_settings.cache_clear()
+        importlib.reload(submerge.api)
+
+        from starlette.testclient import TestClient
+
+        client = TestClient(submerge.api.app)
+        t0 = 1_000_000_000.0
+
+        with patch("time.monotonic", return_value=t0):
+            r1 = client.get("/api/polls")
+            assert r1.status_code == 200
+            r2 = client.get("/api/polls")
+            assert r2.status_code == 200
+            r3 = client.get("/api/polls")
+            assert r3.status_code == 429, (
+                f"Non-health endpoints must still be rate-limited, got {r3.status_code}"
+            )
+
+        get_settings.cache_clear()
+
+
 class TestApiSettingsValidation:
     """Tests for POST /api/settings input validation."""
 
