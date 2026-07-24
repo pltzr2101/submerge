@@ -468,11 +468,13 @@ async def api_sync_arbitrary(request: Request):
         safe_results: list[dict[str, Any]] = []
         for i, r in enumerate(results):
             if isinstance(r, Exception):
-                safe_results.append({
-                    "path": str(target_paths[i]),
-                    "status": "error",
-                    "message": str(r),
-                })
+                safe_results.append(
+                    {
+                        "path": str(target_paths[i]),
+                        "status": "error",
+                        "message": str(r),
+                    }
+                )
             else:
                 safe_results.append(r)
 
@@ -599,11 +601,13 @@ async def api_sync_folder(request: Request):
         safe_results: list[dict[str, Any]] = []
         for i, r in enumerate(results):
             if isinstance(r, Exception):
-                safe_results.append({
-                    "path": str(candidate_paths[i]),
-                    "status": "error",
-                    "message": str(r),
-                })
+                safe_results.append(
+                    {
+                        "path": str(candidate_paths[i]),
+                        "status": "error",
+                        "message": str(r),
+                    }
+                )
             else:
                 safe_results.append(r)
 

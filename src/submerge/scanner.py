@@ -68,7 +68,7 @@ def _scan_additional_subtitles(
         if not name.lower().startswith(stem_lower):
             continue
 
-        suffix_part = name[len(video_path.stem):]
+        suffix_part = name[len(video_path.stem) :]
         if not suffix_part.startswith("."):
             continue
 
