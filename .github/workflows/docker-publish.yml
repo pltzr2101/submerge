@@ -49,15 +49,14 @@ jobs:
         with:
           context: .
           push: true
-          load: true
-          tags: submerge:ci
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Pull requests build locally only: no GHCR credentials, no push.
-      - name: Build image (pull request)
-        if: github.event_name == 'pull_request'
+      # Lokaler Build fuer Smoke-Test und Groessen-Gate. Laeuft auf allen
+      # Events: auf main nach dem Push (Cache-Hit), auf PRs ohne Credentials.
+      - name: Build image for smoke test
         uses: docker/build-push-action@v6
         with:
           context: .
