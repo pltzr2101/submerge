@@ -1,11 +1,33 @@
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1
+
+# Build stage — webrtcvad 2.0.10 ships as sdist only (no wheels), so `uv sync`
+# compiles its C extension and needs a compiler. The toolchain stays here.
+FROM python:3.11-slim AS build
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc python3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+COPY src/ src/
+RUN uv sync --frozen --no-dev && rm -rf /root/.cache/uv
+
+
+# Runtime stage — same base tag, so the compiled extension and the venv's
+# absolute symlink (bin/python -> /usr/local/bin/python3) resolve unchanged.
+# Only what the service execs at runtime: ffmpeg/ffprobe and alass, plus curl
+# for the HEALTHCHECK.
+FROM python:3.11-slim AS runtime
 
 LABEL maintainer="pltzr2101" \
       version="2.1.3" \
       description="Bilingual subtitle merge service for ARR stacks"
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl gcc python3-dev && \
+    apt-get install -y --no-install-recommends ffmpeg curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Install alass for SRT-to-SRT subtitle synchronization
@@ -17,16 +39,14 @@ RUN curl -fsSL -o /usr/local/bin/alass \
     echo "${ALASS_SHA256}  /usr/local/bin/alass" | sha256sum -c - && \
     chmod +x /usr/local/bin/alass
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
 ENV PATH="/app/.venv/bin:$PATH"
-# Guarantees src-layout resolution; complements uv pip install --no-deps
+# Guarantees src-layout resolution; complements the editable install in .venv
 ENV PYTHONPATH="/app/src"
 
 WORKDIR /app
+COPY --from=build /app/.venv /app/.venv
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
-RUN uv sync --frozen --no-dev
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:8282/health || exit 1
