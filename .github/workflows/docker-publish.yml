@@ -49,7 +49,8 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          load: true
+          tags: submerge:ci
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -68,7 +69,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Container smoke test
-        if: github.event_name == 'pull_request'
         run: |
           set -eu
           docker run -d --name submerge-smoke \
@@ -112,7 +112,6 @@ jobs:
       # /app has its own gate at 168 MB (measured 112 MB) to catch a runtime
       # venv or cache regression early.
       - name: Image size gate
-        if: github.event_name == 'pull_request'
         run: |
           set -eu
           total=$(docker run --rm --entrypoint sh submerge:ci -c 'du -sm / | cut -f1')
