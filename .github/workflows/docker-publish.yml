@@ -121,7 +121,13 @@ jobs:
           lib=$(docker run --rm --entrypoint sh submerge:ci -c 'du -sm /usr/lib/x86_64-linux-gnu | cut -f1')
           echo "unpacked: total=${total} MB | /app=${app} MB | /usr=${usr} MB | /usr/lib/x86_64-linux-gnu=${lib} MB"
           echo "baseline vor dem Multi-Stage-Build: 1037 MB entpackt / 362.8 MB komprimiert"
-          echo "gemessen nach dem Umbau: 703 MB entpackt"
+          echo "gemessen nach dem Umbau: 683 MB entpackt"
+          # Compressed size as it would land in the registry. `docker save` +
+          # gzip is not byte-identical to the registry's own layer compression,
+          # but close enough to stop guessing.
+          gz=$(docker save submerge:ci | gzip -6 | wc -c)
+          echo "compressed (docker save | gzip): $((gz / 1048576)) MB"
+          echo "baseline compressed: 362 MB"
           fail=0
           if [ "$total" -gt 900 ]; then
             echo "::error::Image is ${total} MB unpacked, gate is 900 MB (was 1037 MB before slimming)"
