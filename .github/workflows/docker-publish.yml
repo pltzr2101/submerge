@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -17,7 +19,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -38,9 +44,97 @@ jobs:
       # successful build. This is a transient registry-side error, not an
       # application bug — re-running the workflow typically resolves it.
       - name: Build and push Docker image
+        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Pull requests build locally only: no GHCR credentials, no push.
+      - name: Build image (pull request)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: submerge:ci
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Container smoke test
+        if: github.event_name == 'pull_request'
+        run: |
+          set -eu
+          docker run -d --name submerge-smoke \
+            -e SUBTOOLS_PAIRS=de-ko \
+            -p 8282:8282 \
+            submerge:ci
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8282/health -o /tmp/health.json; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::/health did not answer within 60s"
+            docker logs submerge-smoke
+            exit 1
+          fi
+          echo "=== /health ==="
+          cat /tmp/health.json
+          echo
+          echo "=== container logs ==="
+          docker logs submerge-smoke
+          # /health reports the binaries the service execs at runtime, so this
+          # fails if ffmpeg/ffprobe/alass were dropped from the runtime stage.
+          grep -q '"status":"ok"' /tmp/health.json
+          grep -q '"ffmpeg":true' /tmp/health.json
+          grep -q '"ffprobe":true' /tmp/health.json
+          grep -q '"alass":true' /tmp/health.json
+
+      # Size gate. `docker image inspect .Size` is unreliable with the
+      # containerd store (it reports the compressed sum), so measure the
+      # unpacked size inside the container with du.
+      #
+      # Measured after the multi-stage build: 703 MB unpacked
+      #   (/app 112 MB, /usr 575 MB, /usr/lib/x86_64-linux-gnu 452 MB)
+      # Before it: 1037 MB unpacked / 362.8 MB compressed.
+      # The 900 MB gate is ~28 % above the measured value and deliberately
+      # below the old 1037 MB, so a fallback to the single-stage build fails.
+      # /app has its own gate at 168 MB (measured 112 MB) to catch a runtime
+      # venv or cache regression early.
+      - name: Image size gate
+        if: github.event_name == 'pull_request'
+        run: |
+          set -eu
+          total=$(docker run --rm --entrypoint sh submerge:ci -c 'du -sm / | cut -f1')
+          app=$(docker run --rm --entrypoint sh submerge:ci -c 'du -sm /app | cut -f1')
+          usr=$(docker run --rm --entrypoint sh submerge:ci -c 'du -sm /usr | cut -f1')
+          lib=$(docker run --rm --entrypoint sh submerge:ci -c 'du -sm /usr/lib/x86_64-linux-gnu | cut -f1')
+          echo "unpacked: total=${total} MB | /app=${app} MB | /usr=${usr} MB | /usr/lib/x86_64-linux-gnu=${lib} MB"
+          echo "baseline vor dem Multi-Stage-Build: 1037 MB entpackt / 362.8 MB komprimiert"
+          echo "gemessen nach dem Umbau: 683 MB entpackt"
+          # Compressed size as it would land in the registry. `docker save` +
+          # gzip is not byte-identical to the registry's own layer compression,
+          # but close enough to stop guessing.
+          gz=$(docker save submerge:ci | gzip -6 | wc -c)
+          echo "compressed (docker save | gzip): $((gz / 1048576)) MB"
+          echo "baseline compressed: 362 MB"
+          fail=0
+          if [ "$total" -gt 900 ]; then
+            echo "::error::Image is ${total} MB unpacked, gate is 900 MB (was 1037 MB before slimming)"
+            fail=1
+          fi
+          if [ "$app" -gt 168 ]; then
+            echo "::error::/app is ${app} MB, gate is 168 MB (was 112 MB after slimming)"
+            fail=1
+          fi
+          exit "$fail"
